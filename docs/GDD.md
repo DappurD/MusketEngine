@@ -315,28 +315,77 @@ Night shrinks LOS 800m → 40m. Muzzle flashes = 0.5s vision bursts. Work stops 
 
 > **The Cardinal Rule**: Voxels are for the Brain. Real meshes are for the Eyes. The player never sees a cube.
 
-### 9.1 Rendering
+### 9.1 The Zero-Budget AAA Art Pipeline
 
-- **Procedural Gaussian Splatting (Proc-GS)**: Generates highly-detailed, low-overhead 18th-century building facades fitted to irregular Voronoi plots
+> You do not need a $2M budget and 15 artists. You need Architecture. Code-Driven Aesthetics (Tech-Art) lets math, shaders, and lighting do the heavy lifting.
+
+**Pillar 1: The Army (The VAT Multiplier)**
+
+Buy **ONE** historically accurate base mesh (~$30-50, CGTrader/Epic Fab, 3-5k tris). Generate 5 animations via Mixamo (free). Bake to VAT in Blender. The Godot shader uses `INSTANCE_ID` as a random seed to create 10,000 visually distinct soldiers from that single mesh:
+
+| Instance Hash | Coat Color | Face | Mud | March Phase |
+|---|---|---|---|---|
+| Seed × 5.0 | Brown / Blue / Gray | 5 variants | 0-15% | 0-0.5s offset |
+
+**Pillar 2: Architecture (Proc-GS & Kitbashing)**
+
+Buy a **Historical Village Kit** (~$50) — not whole houses, but LEGO pieces: 1 stone wall, 1 plaster wall, 3 roofs (thatch/slate), 1 chimney, 2 doors. C++ snaps segments to irregular Voronoi plot perimeters and caps with procedural roofs. Every house is mathematically unique.
+
+**Alternative**: Use phone + Luma AI / Polycam to scan real historical buildings → 3D Gaussian Splats → drop directly into Godot. Instant photorealism, zero modeling.
+
+**Pillar 3: Environment (Physics Paints the Art)**
+
+- **CC0 Textures (Free)**: Polyhaven / AmbientCG — 4K PBR European soil, cobblestones, grass
+- **Reactive Splatmap**: C++ `trample_count` array drives Godot shader. Citizens physically paint roads by walking on them. No hand-painting required
+- **Volumetric Lighting (Built-in)**: Godot 4 Forward+ has SDFGI + Volumetric Fog. A $5 gray wall looks cinematic when backlit by dynamic muzzle flashes cutting through volumetric smoke
+
+**Pillar 4: The 18th Century is Public Domain**
+
+- **UI Art**: Historical oil paintings from the Louvre's open-access archive. Midjourney for LLM General portraits
+- **Audio**: Sonniss GDC archives (free CC0 musket fire, thunder, classical music)
+
+### 9.2 Rendering Pipeline
+
 - **Vertex Animation Textures (VATs)**: 100,000 agents. `INSTANCE_ID` hash creates random faces, mud splatters, animation staggering. `carrying_item` byte swaps animations
+- **Procedural Gaussian Splatting (Proc-GS)**: Low-overhead building facades fitted to irregular Voronoi plots
 - **Reactive Splatmap**: Shader mixes grass/mud based on C++ `trample_count`. Craters via `artillery_crater` events
 - **Volumetric Black Powder**: Smoke CA → Godot 4 VFog. God rays through powder. Muzzle flashes illuminate from inside
 
-### 9.2 Diegetic & Spatial UI
+### 9.3 Diegetic & Spatial UI
 
 - **Spatial Heatmaps**: Frostpunk 2 style overlays for Spark_Risk, Pollution, Desirability projected onto CA grids
 - **Diegetic Interaction**: Physical paper SitReps (LLM-generated). 3D pocket watch for time. No generic floating UI panels
 
 ---
 
-## 10. Development Roadmap
+## 10. Development Roadmap & Business Plan
 
-- [ ] **Phase 1**: Combat Prototype (Marketing Demo) — Spring-Damper, Volleys, DDA Artillery, Panic CA, VATs
-- [ ] **Phase 2**: The Neuro-Symbolic General — State Compressor, Battle Commander, Couriers, Personalities
-- [ ] **Phase 3**: The Logistics Bedrock — 1Hz Matchmaker, Flow Fields, Tools/Barrels, Hazard zoning
-- [ ] **Phase 4**: Procedural Urbanism & Siege — Voronoi lots, Vauban polygons, Glacis physics, Triage
-- [ ] **Phase 5**: The Friction of War — Weather/Mud, Night shifts, Acoustic delays, Conscription bridge
-- [ ] **Phase 6**: Visual Polish & Steam — Proc-GS, Volumetric Smoke, Spatial UI, Trailer
+### Phase 1: "Whitebox" Math Proof (Months 1-2) — Cost: $0
+
+- Visuals: Godot capsules and gray cubes
+- Goal: C++ Flecs ECS, Spring-Damper physics, DDA Artillery, 100k agent logistics
+- **Success Metric**: The game is deeply fun and strategic using only gray cubes
+
+### Phase 2: "Tech Art" Vertical Slice (Months 3-4) — Cost: ~$100-150
+
+- Buy: 1 soldier pack ($30-50), 1 modular building kit ($50)
+- Implement: VAT pipeline, Splatmaps, Volumetric Fog
+- Apply the "skin" to the gray cubes
+
+### Phase 3: The Pitch (Month 5)
+
+- Record 90-second gameplay video showing:
+  - 5,000 agents autonomously building an organic town
+  - Seamless zoom to Cartographer's Table
+  - 10,000 VAT soldiers firing volley arcs into dynamic mud, engulfed in volumetric smoke
+  - LLM General issuing orders via physical courier
+- **Take to publishers** (Hooded Horse, Paradox) or Kickstarter
+
+### Phase 4-6: Funded Development
+
+- $300k+ funding secures dedicated 3D historical artist
+- Artist overwrites placeholder `.obj` files — engine scales up instantly (DOD architecture)
+- Polish, Steam release, community building
 
 ---
 
