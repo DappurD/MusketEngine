@@ -1,0 +1,491 @@
+[gd_scene format=3 uid="uid://b6xrp81vb1ct0"]
+
+[ext_resource type="PackedScene" uid="uid://b4eo2mygrj7b2" path="res://PSX Mega Pack II/Models/other-formats/DAE/Buildings/shed_ax_2.dae" id="1_qyd10"]
+[ext_resource type="PackedScene" uid="uid://dywntofb4w4ug" path="res://PSX Mega Pack II/Models/GLB (recommended)/Modular Structures/wall_rg_1.glb" id="2_swwi1"]
+[ext_resource type="PackedScene" uid="uid://dm15w3uo82rb8" path="res://PSX Mega Pack II/Models/GLB (recommended)/Buildings/warehouse_mx_3.glb" id="3_gfy5m"]
+[ext_resource type="PackedScene" uid="uid://djamjmu6fvcww" path="res://PSX Mega Pack II/Models/other-formats/FBX/Buildings/warehouse_mx_2.fbx" id="4_4t333"]
+[ext_resource type="PackedScene" uid="uid://0uvowlo7wis4" path="res://PSX Mega Pack II/Models/other-formats/FBX/Structures/warehouse_hl_1.fbx" id="5_k782d"]
+[ext_resource type="PackedScene" uid="uid://cvhil4orc2twn" path="res://PSX Mega Pack II/Models/other-formats/DAE/Structures/water_tower_hm_1.dae" id="6_k782d"]
+[ext_resource type="PackedScene" uid="uid://c0oggxfh3wo6j" path="res://PSX Mega Pack II/Models/other-formats/FBX/Buildings/warehouse_mx_4_1.fbx" id="7_swwi1"]
+[ext_resource type="PackedScene" uid="uid://dmieo6hdqnl2x" path="res://PSX Mega Pack II/Models/GLB (recommended)/Modular Props/barricade_a_2.glb" id="9_aoj3l"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.17, 0.2, 0.14, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(420, 300)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(420, 0.2, 300)
+
+[sub_resource type="NavigationMesh" id="NavigationMesh_main"]
+cell_size = 0.35
+agent_height = 1.8
+filter_baking_aabb = AABB(-210, -2, -150, 424, 8, 304)
+
+[node name="Map" type="Node3D" unique_id=411471924]
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=1881488567]
+collision_mask = 0
+
+[node name="GroundMesh" type="MeshInstance3D" parent="Ground" unique_id=733960691]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.3623495, 0.48748016, -2.7553253)
+material_override = SubResource("StandardMaterial3D_ground")
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="shed_ax_2" parent="Ground/GroundMesh" unique_id=1584074060 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -15.987106, 0, -79.4904)
+
+[node name="shed_ax_3" parent="Ground/GroundMesh" unique_id=198334769 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -3.058426, 0, -56.74844)
+
+[node name="shed_ax_4" parent="Ground/GroundMesh" unique_id=55734494 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -3.058426, 0, -92.91342)
+
+[node name="shed_ax_5" parent="Ground/GroundMesh" unique_id=169480493 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -3.058426, 0, 16.413109)
+
+[node name="shed_ax_3" parent="Ground/GroundMesh/shed_ax_5" unique_id=1840454586 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920423, 0, -0.4519522, 0, 1, 0, 0.4519522, 0, 0.8920423, -21.002743, 0, -29.498388)
+
+[node name="shed_ax_6" parent="Ground/GroundMesh" unique_id=58152990 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -3.8080292, 0, 90.07512)
+
+[node name="shed_ax_7" parent="Ground/GroundMesh" unique_id=1527166055 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -15.987106, 0, -79.4904)
+
+[node name="wall_rg_12" parent="Ground/GroundMesh" unique_id=1189785932 instance=ExtResource("2_swwi1")]
+transform = Transform3D(1.0104096, 0, -7.262647, 0, 1, 0, 1.7784257, 0, 4.126261, -15.002937, 0, -6.1676826)
+
+[node name="wall_rg_13" parent="Ground/GroundMesh" unique_id=1790307766 instance=ExtResource("2_swwi1")]
+transform = Transform3D(-5.668169, -0.30981365, -0.5718297, -1.846951, 0.9507973, -0.1863285, 0.94015515, 0, -3.8135908, 5.554983, 0, -6.1676826)
+
+[node name="shed_ax_8" parent="Ground/GroundMesh" unique_id=322901562 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920423, 0, -0.4519522, 0, 1, 0, 0.4519522, 0, 0.8920423, 20.390968, -2.5428734, -18.379562)
+
+[node name="GroundCollision" type="CollisionShape3D" parent="Ground" unique_id=408579939]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.14471579, 0)
+shape = SubResource("BoxShape3D_ground")
+
+[node name="NavigationRegion3D" type="NavigationRegion3D" parent="." unique_id=1059176733]
+navigation_mesh = SubResource("NavigationMesh_main")
+
+[node name="Buildings" type="Node3D" parent="." unique_id=324373002]
+
+[node name="LaneDividerNorth_W" parent="Buildings" unique_id=1551413950]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -58, 0, -40)
+size = Vector3(92, 4, 16)
+color = Color(0.32, 0.34, 0.3, 1)
+
+[node name="LaneDividerNorth_E" parent="Buildings" unique_id=1614832981]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 58, 0, -40)
+size = Vector3(92, 4, 16)
+color = Color(0.32, 0.34, 0.3, 1)
+
+[node name="LaneDividerSouth_W" parent="Buildings" unique_id=840810748]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -58, 0, 40)
+size = Vector3(92, 4, 16)
+color = Color(0.32, 0.34, 0.3, 1)
+
+[node name="LaneDividerSouth_E" parent="Buildings" unique_id=80036530]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 58, 0, 40)
+size = Vector3(92, 4, 16)
+color = Color(0.32, 0.34, 0.3, 1)
+
+[node name="T1_Bunker_North" parent="Buildings" unique_id=806046474]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -152, 0, -74)
+size = Vector3(20, 5, 16)
+color = Color(0.29, 0.32, 0.28, 1)
+
+[node name="T1_Bunker_Mid" parent="Buildings" unique_id=2080215378]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -152, 0, 0)
+size = Vector3(20, 5, 16)
+color = Color(0.29, 0.32, 0.28, 1)
+
+[node name="T1_Bunker_South" parent="Buildings" unique_id=47868045]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -152, 0, 74)
+size = Vector3(20, 5, 16)
+color = Color(0.29, 0.32, 0.28, 1)
+
+[node name="T2_Bunker_North" parent="Buildings" unique_id=1430491040]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 152, 0, -74)
+size = Vector3(20, 5, 16)
+color = Color(0.32, 0.3, 0.28, 1)
+
+[node name="T2_Bunker_Mid" parent="Buildings" unique_id=1977473396]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 152, 0, 0)
+size = Vector3(20, 5, 16)
+color = Color(0.32, 0.3, 0.28, 1)
+
+[node name="T2_Bunker_South" parent="Buildings" unique_id=910385135]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 152, 0, 74)
+size = Vector3(20, 5, 16)
+color = Color(0.32, 0.3, 0.28, 1)
+
+[node name="warehouse_mx_32" parent="Buildings" unique_id=1136403293 instance=ExtResource("3_gfy5m")]
+transform = Transform3D(-0.8912962, 0, -1.5232246, 0, 1.0088091, 0, 1.3471637, 0, -1.00778, 0.30691528, -0.86486816, 20.984518)
+
+[node name="warehouse_mx_2" parent="Buildings" unique_id=2112431507 instance=ExtResource("4_4t333")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26.225296, 0, 92.71119)
+
+[node name="warehouse_hl_1" parent="Buildings" unique_id=1949303301 instance=ExtResource("5_k782d")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26.510422, 0, 73.51308)
+
+[node name="water_tower_hm_1" parent="Buildings" unique_id=1429167592 instance=ExtResource("6_k782d")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 53.873417, 0, -17.87165)
+
+[node name="warehouse_mx_4_1" parent="Buildings" unique_id=1878661225 instance=ExtResource("7_swwi1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -48.141296, -2.3697233, -78.557274)
+
+[node name="Roads" type="Node3D" parent="." unique_id=90433432]
+
+[node name="warehouse_hl_1" parent="Roads" unique_id=258515886 instance=ExtResource("5_k782d")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.554659, 0, -84.42618)
+
+[node name="Lights" type="Node3D" parent="." unique_id=905141067]
+
+[node name="Cover" type="Node3D" parent="." unique_id=1410177619]
+
+[node name="TopLane_T1_WallA" parent="Cover" unique_id=712449628]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -112, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="TopLane_T1_WallB" parent="Cover" unique_id=238672226]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -88, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="TopLane_T2_WallA" parent="Cover" unique_id=962998967]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 88, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="shed_ax_2" parent="Cover/TopLane_T2_WallA" unique_id=401348402 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, -3.058426, 0, -79.4904)
+
+[node name="TopLane_T2_WallB" parent="Cover" unique_id=400658744]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 112, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="TopLane_Center_Vehicle" parent="Cover" unique_id=633545163]
+transform = Transform3D(0.94, 0, 0.34, 0, 1, 0, -0.34, 0, 0.94, 0, 0, -74)
+fill_pct = 0.6
+cover_health = 800.0
+max_cover_health = 800.0
+cover_height = 1.5
+cover_width = 2.2
+cover_depth = 5.5
+preset_type = "vehicle_pickup"
+model_key = "Vehicle_Pickup"
+model_source = "vehicle"
+
+[node name="MidLane_T1_SandbagA" parent="Cover" unique_id=180506175]
+transform = Transform3D(0.7, 0, 0.7, 0, 1, 0, -0.7, 0, 0.7, -112, 0, 0)
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 1.0
+cover_depth = 0.8
+
+[node name="MidLane_T1_SandbagB" parent="Cover" unique_id=1867367645]
+transform = Transform3D(-0.7, 0, 0.7, 0, 1, 0, -0.7, 0, -0.7, -88, 0, 0)
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 1.0
+cover_depth = 0.8
+
+[node name="MidLane_T2_SandbagA" parent="Cover" unique_id=2053499164]
+transform = Transform3D(0.7, 0, -0.7, 0, 1, 0, 0.7, 0, 0.7, 88, 0, 0)
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 1.0
+cover_depth = 0.8
+
+[node name="MidLane_T2_SandbagB" parent="Cover" unique_id=1794892350]
+transform = Transform3D(-0.7, 0, -0.7, 0, 1, 0, 0.7, 0, -0.7, 112, 0, 0)
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 1.0
+cover_depth = 0.8
+
+[node name="SouthLane_T1_WallA" parent="Cover" unique_id=1847907367]
+transform = Transform3D(0, 0, 9.957964, 0, 2.1317246, 0, -5.840519, 0, 0, -112, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="SouthLane_T1_WallB" parent="Cover" unique_id=508032601]
+transform = Transform3D(2.8584366, 0, 0.7945206, 0, 2.4045374, 0, -3.7400327, 0, 0.60723716, -88, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="SouthLane_T2_WallA" parent="Cover" unique_id=950393459]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 88, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="SouthLane_T2_WallB" parent="Cover" unique_id=411992890]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 112, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_1"
+
+[node name="SouthLane_Center_Vehicle" parent="Cover" unique_id=1306300252]
+transform = Transform3D(0.94, 0, -0.34, 0, 1, 0, 0.34, 0, 0.94, 0, 0, 74)
+fill_pct = 0.6
+cover_health = 800.0
+max_cover_health = 800.0
+cover_height = 1.5
+cover_width = 2.2
+cover_depth = 5.5
+preset_type = "vehicle_pickup"
+model_key = "Vehicle_Pickup"
+model_source = "vehicle"
+
+[node name="barricade_a_22" parent="Cover" unique_id=1740180701 instance=ExtResource("9_aoj3l")]
+transform = Transform3D(3.0454674, 0, -3.4064121, 0, 1, 0, 5.229908, 0, 1.9836137, -46.358566, 0, -17.801846)
+
+[node name="TopLane_Mid_WallW1" parent="Cover" unique_id=2068962158]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -46, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_2"
+
+[node name="TopLane_Mid_WallW2" parent="Cover" unique_id=151440871]
+transform = Transform3D(0.7071068, 0, 0.7071068, 0, 1, 0, -0.7071068, 0, 0.7071068, -22, 0, -66)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="TopLane_Mid_WallE1" parent="Cover" unique_id=1903091890]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 46, 0, -74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall"
+model_key = "BrickWall_2"
+
+[node name="TopLane_Mid_WallE2" parent="Cover" unique_id=848764278]
+transform = Transform3D(0.7071068, 0, -0.7071068, 0, 1, 0, 0.7071068, 0, 0.7071068, 22, 0, -66)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="MidLane_Center_Cinder_W" parent="Cover" unique_id=931738573]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, -6)
+fill_pct = 0.45
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 0.6
+cover_width = 0.8
+cover_depth = 0.4
+preset_type = "cinderblock"
+model_key = "CinderBlock"
+model_source = "zombie"
+
+[node name="MidLane_Center_Cinder_E" parent="Cover" unique_id=2131709082]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 6)
+fill_pct = 0.45
+cover_health = 150.0
+max_cover_health = 150.0
+cover_height = 0.6
+cover_width = 0.8
+cover_depth = 0.4
+preset_type = "cinderblock"
+model_key = "CinderBlock"
+model_source = "zombie"
+
+[node name="MidLane_Center_Barrier_W" parent="Cover" unique_id=1453441940]
+transform = Transform3D(0.8660254, 0, 0.5, 0, 1, 0, -0.5, 0, 0.8660254, -34, 0, -2)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="MidLane_Center_Barrier_E" parent="Cover" unique_id=2032862975]
+transform = Transform3D(0.8660254, 0, -0.5, 0, 1, 0, 0.5, 0, 0.8660254, 34, 0, 2)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="MidLane_FlankPocket_W" parent="Cover" unique_id=1256427839]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -62, 0, 18)
+fill_pct = 0.65
+cover_health = 500.0
+max_cover_health = 500.0
+cover_height = 2.5
+cover_width = 2.5
+cover_depth = 6.0
+preset_type = "container"
+model_key = "Container_Small"
+
+[node name="MidLane_FlankPocket_E" parent="Cover" unique_id=1780438903]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 62, 0, -18)
+fill_pct = 0.65
+cover_health = 500.0
+max_cover_health = 500.0
+cover_height = 2.5
+cover_width = 2.5
+cover_depth = 6.0
+preset_type = "container"
+model_key = "Container_Small"
+
+[node name="SouthLane_Mid_WallW1" parent="Cover" unique_id=1869164612]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -46, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall_2"
+model_key = "BrickWall_2"
+
+[node name="SouthLane_Mid_WallW2" parent="Cover" unique_id=2727683]
+transform = Transform3D(0.7071068, 0, -0.7071068, 0, 1, 0, 0.7071068, 0, 0.7071068, -22, 0, 66)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="SouthLane_Mid_WallE1" parent="Cover" unique_id=1190145141]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 46, 0, 74)
+fill_pct = 0.75
+cover_health = 400.0
+max_cover_health = 400.0
+cover_height = 1.8
+cover_width = 3.8
+cover_depth = 0.6
+preset_type = "brick_wall_2"
+model_key = "BrickWall_2"
+
+[node name="SouthLane_Mid_WallE2" parent="Cover" unique_id=944860295]
+transform = Transform3D(0.7071068, 0, 0.7071068, 0, 1, 0, -0.7071068, 0, 0.7071068, 22, 0, 66)
+fill_pct = 0.55
+cover_health = 180.0
+max_cover_health = 180.0
+cover_width = 3.5
+cover_depth = 0.8
+preset_type = "barrier_large"
+model_key = "Barrier_Large"
+
+[node name="LanePivot_Top" parent="Cover" unique_id=1966477487]
+transform = Transform3D(0.9396926, 0, -0.34202015, 0, 1, 0, 0.34202015, 0, 0.9396926, 0, 0, -52)
+fill_pct = 0.7
+cover_health = 600.0
+max_cover_health = 600.0
+cover_height = 2.5
+cover_width = 2.5
+cover_depth = 12.0
+preset_type = "container_long"
+model_key = "Container_Long"
+
+[node name="LanePivot_Bottom" parent="Cover" unique_id=1807212377]
+transform = Transform3D(0.9396926, 0, 0.34202015, 0, 1, 0, -0.34202015, 0, 0.9396926, 0, 0, 52)
+fill_pct = 0.7
+cover_health = 600.0
+max_cover_health = 600.0
+cover_height = 2.5
+cover_width = 2.5
+cover_depth = 12.0
+preset_type = "container_long"
+model_key = "Container_Long"
+
+[node name="wall_rg_12" parent="Cover" unique_id=617441178 instance=ExtResource("2_swwi1")]
+transform = Transform3D(2.9812975, 0, -3.356779, 0, 1, 0, 5.2473927, 0, 1.9071486, -15.002937, 0, -6.1676826)
+
+[node name="wall_rg_12" parent="Cover/wall_rg_12" unique_id=210371903 instance=ExtResource("2_swwi1")]
+transform = Transform3D(1.0075731, 0, -1.7932247, 0, 1.3982493, 0, 1.7734327, 0, 1.0188167, -13.3488, 0.11981583, -10.718939)
+
+[node name="SpawnMarkers" type="Node3D" parent="." unique_id=1471058289]
+
+[node name="Team1Base" type="Marker3D" parent="SpawnMarkers" unique_id=200026567]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -130, 0, 0)
+
+[node name="Team2Base" type="Marker3D" parent="SpawnMarkers" unique_id=1992783843]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 130, 0, 0)
+
+[node name="POI_Alpha" type="Marker3D" parent="SpawnMarkers" unique_id=357239252]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -74)
+
+[node name="POI_Bravo" type="Marker3D" parent="SpawnMarkers" unique_id=1360520796]
+
+[node name="POI_Charlie" type="Marker3D" parent="SpawnMarkers" unique_id=1673971661]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 74)
+
+[node name="shed_ax_2" parent="." unique_id=1288661299 instance=ExtResource("1_qyd10")]
+transform = Transform3D(0.8920422, 0, -0.45195213, 0, 1, 0, 0.45195213, 0, 0.8920422, 15.092255, 0, 66.4774)
