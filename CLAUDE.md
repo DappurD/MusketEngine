@@ -20,6 +20,8 @@
 
 5. **DATA-DRIVEN MODDABILITY**: NEVER hardcode gameplay stats (speed, damage, reload time, production cost, stiffness) as magic numbers in C++ systems. ALL dynamic values must come from Flecs Components initialized via JSON files in `res://data/`. The engine must be blind to what a "French Infantry" is — it only reads data and applies physics.
 
+6. **NETWORK SAFETY**: NEVER sync individual soldier/citizen Position/Velocity over the network. The Server owns the authoritative ECS. Server broadcasts macro-state (battalion anchors, death events, inventories) at 10Hz. Clients run local "Visual ECS" — spring-damper physics pull soldiers to server anchors. Player inputs route through Godot RPCs to the Server's C++ Input Queue.
+
 ## After Every Task
 Update `STATE.md` with what was built, what changed, and any new bugs.
 

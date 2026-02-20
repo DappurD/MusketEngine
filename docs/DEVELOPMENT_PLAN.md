@@ -15,6 +15,13 @@
 - [ ] Create `res://data/ai_prompts/` folder for LLM personality files
 - [ ] **Verify**: Change `walk_speed` in a `.json` file → capsules move faster *without recompiling C++*
 
+### M0.8: Headless Server & RPC Bridge (Multiplayer Bedrock)
+- [ ] Configure C++ ECS to compile with `#define SERVER_MODE` (headless, no rendering) and `#define CLIENT_MODE`
+- [ ] Set up Godot's `ENetMultiplayerPeer` to pass byte arrays to C++ ECS
+- [ ] Write C++ 10Hz serialization loop: pack 150 Battalion macro-coordinates into byte array
+- [ ] Implement client-side "Visual ECS" — spring-damper pulls soldiers to server macro-anchor
+- [ ] **Verify**: Host local server, connect client. Click command on client → Server spawns Courier → macro-coordinate updates on both Godot windows identically
+
 ### M1: The ECS Foundation
 - [ ] `world_manager.cpp` — instantiate `flecs::world`, register all components from `musket_components.h`
 - [ ] Expose `MusketServer` singleton to Godot via `ClassDB::bind_method`

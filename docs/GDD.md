@@ -119,6 +119,17 @@ Infantry        Cavalry        Artillery
 | The Stage | Reactive Terrain | 60Hz | Dynamic mud, blood, craters |
 | The Fog | Volumetric Smoke | 60Hz | Black powder → Godot VFog |
 
+### 4.3 The Networking Paradigm (Server-Authoritative Macro-Sync)
+
+> Networking 100,000 agents over the internet is impossible with traditional sync. Our Subsumption Architecture solves this by only syncing the Brain (150 macro-battalions), never the Muscle (100,000 soldiers).
+
+- **FORBIDDEN**: Do NOT sync individual `Citizen` or `Soldier` physics (Velocity/Position) over the network
+- **MANDATORY**: One PC (or headless server) runs the authoritative Flecs ECS. It computes combat, economy, and the Panic CA Grid
+- **MANDATORY**: Server broadcasts **Macro-State** at 10Hz via Godot's `ENetMultiplayerPeer`: battalion anchors, grid updates, building inventories, death events. This is **bytes**, not megabytes
+- **MANDATORY**: Client runs "Visual ECS" locally. Spring-damper physics pull visual soldiers to match Server's macro-anchor. If a soldier is 2 inches off on Player B's screen, it doesn't matter
+- **MANDATORY**: All player inputs routed through Godot RPCs to the C++ Server's Input Queue
+- **LATENCY HIDING**: Diegetic courier system naturally masks 150ms+ network ping — the player watches a courier gallop for 5 seconds regardless
+
 ---
 
 ## 5. Combat Systems & Math
@@ -487,3 +498,27 @@ func _on_battalion_routed(battalion_id):
 ```
 
 **The Line**: C++ owns the 60Hz physics. GDScript modders own the 1Hz narrative.
+
+---
+
+## 13. Multiplayer Game Modes
+
+> Because of our split War/Economy subsumption design, we can offer modes no other game has.
+
+### 13.1 The Coalition (Asymmetric Co-Op)
+
+- **Player 1 (The Mayor)**: Plays the Manor Lords city builder — optimizes supply chains, zones industries
+- **Player 2 (The Marshal)**: Commands the army on the Cartographer's Map, fights tactical battles
+- **The Bridge**: Marshal begs Mayor for Blue Uniforms over Discord. Mayor frantically reroutes logistics to push a wagon of coats to the front
+
+### 13.2 The Tactical Duel (1v1 PvP)
+
+- Skip city builder. Army points budget → draft regiments (via JSON modding) → spawn on opposite sides
+- Pure maneuvering, artillery timing, Panic Grid management
+- LLM General becomes optional advisor, not opponent
+
+### 13.3 The Grand Campaign (PvP)
+
+- Like Civilization meets Total War: players run cities simultaneously on the Cartographer's Map
+- When armies collide → zoom in → 60-minute tactical battle using the exact muskets they just spent 2 hours forging
+- Coalition mode nested inside: allies share supply routes on the parchment map
