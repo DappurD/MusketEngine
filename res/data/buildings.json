@@ -1,0 +1,28 @@
+{
+    "buildings": [
+        {
+            "building_id": "powder_mill",
+            "components": {
+                "Workplace": {
+                    "consumes_item": 13,
+                    "produces_item": 14,
+                    "inventory_in": 0,
+                    "inventory_out": 0,
+                    "tool_durability": 100.0
+                }
+            }
+        },
+        {
+            "building_id": "blacksmith",
+            "components": {
+                "Workplace": {
+                    "consumes_item": 8,
+                    "produces_item": 28,
+                    "inventory_in": 0,
+                    "inventory_out": 0,
+                    "tool_durability": 100.0
+                }
+            }
+        }
+    ]
+}

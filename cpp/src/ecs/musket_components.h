@@ -29,8 +29,21 @@ struct SoldierFormationTarget {
   float damping_multiplier; // ~2.0 for critical damping
 }; // 16 bytes
 
+// ─── Stats ────────────────────────────────────────────────
+struct MovementStats {
+  float base_speed;
+  float charge_speed;
+}; // 8 bytes
+
 // ─── Combat: State ────────────────────────────────────────
+struct TeamId {
+  uint8_t team;
+}; // 1 byte — 0=red, 1=blue
+struct BattalionId {
+  uint32_t id;
+}; // 4 bytes
 struct IsAlive {}; // Tag (0 bytes)
+struct Routing {}; // Tag — soldier is fleeing (GDD §5.3)
 
 struct MusketState {
   float reload_timer;     // Seconds remaining
@@ -42,17 +55,20 @@ struct MusketState {
 struct MovementOrder {
   float target_x, target_z;
   bool arrived;
-};                   // 12 bytes
+}; // 12 bytes
 struct HaltOrder {}; // Tag
 struct FireOrder {
   float target_x, target_z;
 }; // 8 bytes
 
 // ─── Combat: Artillery ────────────────────────────────────
+enum ArtilleryAmmoType : uint8_t { AMMO_ROUNDSHOT = 0, AMMO_CANISTER = 1 };
+
 struct ArtilleryShot {
-  float x, y, z;        // World position
-  float vx, vy, vz;     // Velocity
-  float kinetic_energy; // -1.0 per man
+  float x, y, z;          // World position
+  float vx, vy, vz;       // Velocity
+  float kinetic_energy;   // -1.0 per man penetrated
+  ArtilleryAmmoType ammo; // ROUNDSHOT or CANISTER
   bool active;
 }; // 32 bytes
 
@@ -63,29 +79,84 @@ struct ArtilleryBattery {
   int ammo_roundshot;
   int ammo_canister;
   bool is_limbered;
-}; // 24 bytes
+  float unlimber_timer; // 60s countdown when deploying
+}; // 28 bytes
 
 // ─── Combat: Cavalry ──────────────────────────────────────
+// Deep Think: "You cannot use an Attractor to simulate a Projectile."
+// Charging cavalry bypass the spring-damper and use a locked ballistic
+// vector. lock_dir_x/z is set at commitment distance (30m) and stays
+// constant for the entire charge.
 struct CavalryState {
-  float charge_momentum;
-  bool is_charging;
-  float charge_timer;
-}; // 12 bytes
+  float charge_momentum; // 0.0 to 1.0 (cubic ramp for impact)
+  float state_timer;     // Duration tracker for current state
+  float lock_dir_x;      // Committed ballistic direction X (normalized)
+  float lock_dir_z;      // Committed ballistic direction Z (normalized)
+  uint32_t state_flags;  // 0=Walk, 1=Charging, 2=Disordered
+  uint32_t pad;
+}; // 24 bytes
+
+struct FormationDefense {
+  float defense; // 0.2=Line, 0.5=Column, 0.9=Square
+}; // 4 bytes
+
+struct ChargeOrder {}; // Tag — triggers charge state
+struct Disordered {};  // Tag — post-charge vulnerability
+
+// ─── Rendering: Battalion Chunking ────────────────────────
+// Maps each entity to a stable slot in a battalion's shadow buffer.
+// The mm_slot is permanent for the entity's lifetime (never shifts).
+struct RenderSlot {
+  uint32_t battalion_id;
+  uint32_t mm_slot;
+}; // 8 bytes
 
 // ─── Combat: Command Network ─────────────────────────────
 struct FormationAnchor {}; // Flag bearer tag
 struct OrderLatency {
   float delay_seconds;
-};                     // Drummer: 2.0 alive, 8.0 dead
+}; // Drummer: 2.0 alive, 8.0 dead
 struct ElevatedLOS {}; // Officer tag
 
 // ─── Combat: Medical ──────────────────────────────────────
 struct Downed {
   float bleed_timer;
-};                 // Panic emitter, awaiting stretcher
+}; // Panic emitter, awaiting stretcher
 struct Veteran {}; // Survived surgery tag
 struct Amputee {}; // Restricted jobs tag
 
+// ─── Combat: Panic CA Grid (CORE_MATH.md §4) ─────────────
+// 64×64 double-buffered cellular automata for fear diffusion.
+// PER-TEAM: read_buf[team][cell] so deaths on team X only
+// panic team X soldiers. 64KB total — still fits L1 cache.
+struct PanicGrid {
+  static constexpr int WIDTH = 64;
+  static constexpr int HEIGHT = 64;
+  static constexpr int CELLS = WIDTH * HEIGHT;
+  static constexpr int TEAMS = 2;
+  static constexpr float CELL_SIZE = 4.0f;                  // meters per cell
+  static constexpr float HALF_W = (WIDTH / 2) * CELL_SIZE;  // 128m
+  static constexpr float HALF_H = (HEIGHT / 2) * CELL_SIZE; // 128m
+
+  float read_buf[TEAMS][CELLS];
+  float write_buf[TEAMS][CELLS];
+  float tick_accum; // accumulates dt, fires at 5Hz
+
+  // World → grid index (clamped)
+  static int world_to_idx(float wx, float wz) {
+    int cx = (int)((wx + HALF_W) / CELL_SIZE);
+    int cz = (int)((wz + HALF_H) / CELL_SIZE);
+    if (cx < 0)
+      cx = 0;
+    if (cx >= WIDTH)
+      cx = WIDTH - 1;
+    if (cz < 0)
+      cz = 0;
+    if (cz >= HEIGHT)
+      cz = HEIGHT - 1;
+    return cz * WIDTH + cx;
+  }
+};
 // ─── Economy: Civilian ────────────────────────────────────
 struct Citizen {
   enum State : uint8_t { IDLE, WALKING_TO_SOURCE, WALKING_TO_DEST };

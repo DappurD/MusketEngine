@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 5d91a1cd62eace743bb2daacc8561f43
+timeCreated: 1487403923
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 74630
+  packageName: Napoleonic Character Pack
+  packageVersion: 1.01
+  assetPath: Assets/Napoleonic Character Pack/Mesh/Materials/_Mushketdefault.mat
+  uploadId: 162872

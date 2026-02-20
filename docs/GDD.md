@@ -39,6 +39,8 @@ Nothing is faked. 100,000 agents are fully simulated at 60 FPS without dropping 
 
 4. **THE LEDGER PROTOCOL**: All completed steps, current states, and bugs MUST be logged in `STATE.md`. Before writing code, the AI must silently read `STATE.md` to establish context.
 
+5. **THE LEGACY MINE**: Before implementing any milestone, the AI must check `docs/LEGACY_MAP.md` for reference code from the previous prototype (`legacy_assets/`). The math is solid; the old implementation had integration bugs. Treat as reference, not gospel. NEVER compile legacy files directly.
+
 ### 2.2 Agent Workflows (Slash Commands)
 
 - `/data-first`: Output only lightweight POD structs. Calculate byte size. Wait for approval before writing systems.
@@ -200,7 +202,7 @@ Every soldier is a **16-byte particle** (Position, Velocity). Formations are gov
 | Routing soldier | +0.05/tick (moving emitter) |
 | Drummer alive | -0.2/tick (cleansing) |
 
-**Routing**: Panic > threshold → unit breaks. Routing men sprint outward, painting fear. Running through reserves = **contagion**.
+**Routing**: Panic > 0.6 → `Routing` tag added → soldier sprints outward at **5.0 m/s** (away from nearest enemy), painting +0.05 fear/tick. Running through reserves = **contagion**. Panic < 0.3 → `Routing` tag removed, soldier reforms to slot. Stiffness = 0 while routing (springs disconnected).
 
 **Smoke Grid**: Same CA architecture, tracks opacity. Mapped into Godot 4 Volumetric Fog. Muzzle flashes illuminate smoke volumetrically. Wind shifts via asymmetric kernel.
 
@@ -407,6 +409,7 @@ Buy a **Historical Village Kit** (~$50) — not whole houses, but LEGO pieces: 1
 - Visuals: Godot capsules and gray cubes
 - Goal: C++ Flecs ECS, Spring-Damper physics, DDA Artillery, 100k agent logistics
 - **Success Metric**: The game is deeply fun and strategic using only gray cubes
+- **Voxel Engine**: NOT in Phase 1. DDA raycast math (from legacy `voxel_world.cpp`) ports at M5 (Artillery). Full destructible terrain ports at M15–M18 (Siege). See `docs/LEGACY_MAP.md` for phased porting strategy.
 
 ### Phase 2: "Tech Art" Vertical Slice (Months 3-4) — Cost: ~$100-150
 
@@ -583,3 +586,53 @@ Spatial Hash Grid, Pathfinding Flow Fields, Day/Night Cycle, Weather, Economy Ma
 ```
 
 A WW1 modder keeps `SpringDamper` for rigid marching behind lines, enables `Suppression` for No Man's Land combat. The LLM General just swaps its prompt file.
+
+---
+
+## 15. Controls, UI & Input Architecture (The 5 Pillars)
+
+> The C++ simulation is worthless if the controls feel like wrestling a spreadsheet. These 5 pillars define how human intent becomes ECS data.
+
+### 15.1 Pillar 1: The Input Firewall (Godot → C++)
+
+- **FORBIDDEN:** Godot `_unhandled_input()` scripts must NEVER directly modify game state, positions, or ECS components.
+- **MANDATORY:** Godot intercepts mouse/keyboard events, performs terrain raycasts to get `Vector3` world coordinates, and pushes **Command Structs** to a C++ thread-safe queue:
+  ```
+  { Action: MOVE_ORDER, EntityID: 42, TargetX: 104.5, TargetZ: -89.2, Facing: 0.5 }
+  ```
+- The C++ `BattleCommander` system reads the queue at the start of each 60Hz tick, validates orders (routing units ignore move orders), and writes to ECS components.
+
+### 15.2 Pillar 2: The Cinematic Gimbal Camera
+
+Single camera script, parameterized by altitude:
+- **High Altitude (Macro):** Pitch 80° (top-down), fast movement. Further scroll triggers Cartographer's Table shader.
+- **Low Altitude (Micro):** Pitch 15° (shoulder-level), scaled movement speed.
+- **Zoom Arc:** Logarithmic curve, not linear. Pitch interpolates with zoom level.
+- **Orbit:** Hold MMB to orbit focal point.
+
+### 15.3 Pillar 3: The Marshal (Tactical Combat Controls)
+
+Gold standard: Total War. Musket warfare is geometry.
+
+- **Selection:** Left-click (single), left-drag (marquee box). Godot raycasts → C++ checks Spatial Hash Grid in O(1).
+- **The "Total War" Right-Click Drag:**
+  - Right-Click = Move to point (keep current formation width).
+  - Right-Click + HOLD + DRAG = Draw formation line. Godot calculates facing direction and frontage from drag vector. Divides frontage by living men → depth. Renders semi-transparent "Ghost Box" during drag.
+- **Hotkeys:** `F` (Fire-at-Will toggle), `X` (Form Square), `R` (Run/Walk toggle), `ALT+Drag` (Advance maintaining relative formation).
+
+### 15.4 Pillar 4: The Architect (City-Builder Controls)
+
+Gold standard: Manor Lords. Grid-snapping is dead.
+
+- **Spline Drawing (Roads & Walls):** Left-click start node → mouse draws `Curve3D` bezier → mouse wheel adjusts tension → double-click commits to C++.
+- **Magnetic Snapping:** Godot sphere-casts 2m around cursor. Snaps to building entrances, existing roads, Vauban vertices. **Failure to snap = pathfinding gaps that ruin sieges.**
+- **Polygon Zoning (Burgage Plots):** 4+ point polygon → C++ Voronoi subdivides into deep narrow lots → mouse wheel adjusts lot density → confirm.
+
+### 15.5 Pillar 5: Diegetic & Spatial UI
+
+Zero floating health bars. Information exists in the world.
+
+- **Visual Health:** Bowing lines, dead bodies, audio cues (drumming pace, music swell).
+- **Spatial Heatmaps (`Alt` key):** Hold Alt → screen desaturates → CA grids project onto terrain as glowing overlays (Panic = red, Pollution = yellow).
+- **The Aide-de-Camp Desk (`Tab`):** 3D parchment overlay. LLM SitRep on paper. Natural language order input + wax stamp send button.
+

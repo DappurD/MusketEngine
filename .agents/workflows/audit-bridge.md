@@ -2,31 +2,49 @@
 description: Audit GDExtension bindings for correct headers and ClassDB syntax
 ---
 
-# /audit-bridge — The GDExtension Enforcer
+# Audit GDExtension Bridge
 
-When invoked, review the C++ file just written and verify the Godot ↔ C++ bridge is correct.
+## CRITICAL: Path Resolution Rule
+// turbo-all
 
-## Checklist
+**The Godot project root is `c:\Godot Project\MusketEngine\` (where `project.godot` lives).**
 
-1. **Headers**: Are we including the correct `<godot_cpp/classes/...>` headers?
-   - `MultiMeshInstance3D` → `<godot_cpp/classes/multi_mesh_instance3d.hpp>`
-   - `Node3D` → `<godot_cpp/classes/node3d.hpp>`
-   - Do NOT use Godot 3 `<Godot.hpp>` or `<Reference.hpp>` (deprecated)
+- `res://` = `c:\Godot Project\MusketEngine\`
+- `res://bin/` = `c:\Godot Project\MusketEngine\bin\`
+- `res://res/` = `c:\Godot Project\MusketEngine\res\`
 
-2. **ClassDB bindings**: Is `ClassDB::bind_method` syntax correct in `register_types.cpp`?
-   - Method: `ClassDB::bind_method(D_METHOD("method_name", "arg1", "arg2"), &ClassName::method_name);`
-   - Property: `ClassDB::bind_method(D_METHOD("get_x"), &C::get_x); ClassDB::bind_method(D_METHOD("set_x", "value"), &C::set_x); ADD_PROPERTY(...)`
+**ALL paths to files inside the `res/` subdirectory MUST use `res://res/` prefix.**
 
-3. **Type safety**:
-   - Heavy math types (`Transform3D`, `PackedFloat32Array`) passed by reference
-   - `String` not `std::string` in Godot-facing APIs
-   - `PackedByteArray` / `PackedFloat32Array` for buffer transfers
+Examples:
+- Scripts: `res://res/scripts/test_bed.gd`
+- Scenes: `res://res/scenes/test_bed.tscn`
+- Data: `res://res/data/units.json`
+- DLL: `res://bin/musket_engine.dll` (bin is at repo root, NOT inside res/)
 
-4. **Build verification**:
-   - Does `scons` compile without warnings?
-   - Does the `.gdextension` file point to the correct DLL path?
+## 1. Verify project.godot location
+```
+dir "c:\Godot Project\MusketEngine\project.godot"
+```
 
-## If Errors Found
-- Fix them immediately
-- If unsure about the correct Godot 4 API, search local `godot-cpp/include/` headers
-- Do NOT guess. Ask user or search.
+## 2. Verify .gdextension at project root
+```
+type "c:\Godot Project\MusketEngine\musket_engine.gdextension"
+```
+Expected: `windows.debug.x86_64 = "res://bin/musket_engine.dll"`
+
+## 3. Verify DLL exists
+```
+dir "c:\Godot Project\MusketEngine\bin\musket_engine.dll"
+```
+
+## 4. Check .tscn script references use res://res/ prefix
+```
+findstr /C:"res://scripts" "c:\Godot Project\MusketEngine\res\scenes\*.tscn"
+```
+If any match found WITHOUT `res://res/scripts`, they are WRONG.
+
+## 5. Check C++ res:// paths use res://res/ for data files
+```
+findstr /S /C:"res://data" "c:\Godot Project\MusketEngine\cpp\src\*.cpp"
+```
+If any match found WITHOUT `res://res/data`, they are WRONG.

@@ -1,0 +1,42 @@
+{
+  "units": [
+    {
+      "unit_id": "line_infantry",
+      "components": {
+        "FormationTarget": { "base_stiffness": 50.0, "damping_multiplier": 2.0 },
+        "MovementStats": { "base_speed": 4.0, "charge_speed": 8.0 },
+        "MusketState": { "reload_timer": 15.0, "ammo_count": 60, "misfire_chance": 5 }
+      }
+    },
+    {
+      "unit_id": "cavalry_hussar",
+      "components": {
+        "FormationTarget": { "base_stiffness": 30.0, "damping_multiplier": 1.5 },
+        "MovementStats": { "base_speed": 6.0, "charge_speed": 12.0 },
+        "CavalryState": { "charge_momentum": 0.0, "is_charging": false, "charge_timer": 0.0 }
+      }
+    },
+    {
+      "unit_id": "12pdr_battery",
+      "components": {
+        "ArtilleryBattery": {
+          "num_guns": 6,
+          "reload_timer": 0.0,
+          "traverse_angle": 0.0,
+          "ammo_roundshot": 50,
+          "ammo_canister": 20,
+          "is_limbered": false,
+          "unlimber_timer": 0.0
+        },
+        "MovementStats": { "base_speed": 3.0, "charge_speed": 3.0 }
+      }
+    },
+    {
+      "unit_id": "zombie_horde",
+      "components": {
+        "FormationTarget": { "base_stiffness": 10.0, "damping_multiplier": 1.0 },
+        "MovementStats": { "base_speed": 2.5, "charge_speed": 3.0 }
+      }
+    }
+  ]
+}

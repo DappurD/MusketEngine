@@ -12,4 +12,5 @@ config_version=5
 
 config/name="The Musket Engine"
 config/description="Neuro-Symbolic Napoleonic War & Economy Simulator"
+run/main_scene="res://res/scenes/test_bed.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")

@@ -4,9 +4,11 @@
 
 ## Mandatory Reading Order
 1. `docs/GDD.md` — Full game design (especially §2: The 4 Unbreakable Rules)
-2. `docs/CORE_MATH.md` — All C++ algorithms & shader code (DO NOT reinvent)
+2. `docs/CORE_MATH.md` — All C++ algorithms & shader code (DO NOT reinvent — these are DeepThink-verified)
 3. `docs/DEVELOPMENT_PLAN.md` — Phase plan, branch strategy, naming conventions
-4. `STATE.md` — Current progress, known bugs, immediate next step
+4. `docs/LEGACY_MAP.md` — Cross-reference: which legacy prototype files to check before implementing each milestone
+5. `docs/FLECS_API.md` — **Locked Flecs v4.1.4 syntax** — DO NOT guess at Flecs API, check this first
+6. `STATE.md` — Current progress, known bugs, immediate next step
 
 ## The 4 Unbreakable Rules
 
@@ -14,7 +16,7 @@
 
 2. **DATA-ORIENTED DESIGN ONLY**: No OOP class hierarchies for entities. No `CharacterBody3D` for agents. Components are POD structs (< 32 bytes). Systems iterate via `ecs.query().each()`.
 
-3. **ANTI-HALLUCINATION**: We use Godot 4.x GDExtension (`ClassDB::bind_method`). We use Flecs C++17 API. If unsure about an API, search `cpp/godot-cpp/` headers. Do NOT guess.
+3. **ANTI-HALLUCINATION**: We use Godot 4.x GDExtension (`ClassDB::bind_method`). We use **Flecs v4.1.4** C++17 API — see `docs/FLECS_API.md` for locked syntax. Flecs v3 patterns (`filter()`, `.iter()` pointer lambdas on built queries) are REMOVED. If unsure about any API, search `cpp/godot-cpp/` or `cpp/flecs/flecs.h` headers. Do NOT guess.
 
 4. **NO SCOPE CREEP**: Output complete, compilable functions. Do not refactor outside the immediate task. Do not implement future GDD features unprompted.
 

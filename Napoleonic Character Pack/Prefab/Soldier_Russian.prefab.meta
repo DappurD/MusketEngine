@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: bf6dfb44ea3e6a34fa87cccbb952062d
+timeCreated: 1477327288
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 74630
+  packageName: Napoleonic Character Pack
+  packageVersion: 1.01
+  assetPath: Assets/Napoleonic Character Pack/Prefab/Soldier_Russian.prefab
+  uploadId: 162872

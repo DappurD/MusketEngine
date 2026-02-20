@@ -1,9 +1,11 @@
 #include "register_types.h"
 
+#include "ecs/world_manager.h"
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
+
 
 using namespace godot;
 
@@ -13,7 +15,7 @@ void initialize_musket_engine(ModuleInitializationLevel p_level) {
   }
 
   // Register C++ classes exposed to Godot here
-  // ClassDB::register_class<MusketServer>();
+  ClassDB::register_class<MusketServer>();
 }
 
 void uninitialize_musket_engine(ModuleInitializationLevel p_level) {
