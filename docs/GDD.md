@@ -53,6 +53,15 @@ Nothing is faked. 100,000 agents are fully simulated at 60 FPS without dropping 
 - **MANDATORY**: Components must be initialized via a C++ JSON parser reading from `res://data/` at startup. The engine treats data as external and mutable
 - **RESULT**: A modder opens `res://data/units.json` in Notepad, changes `walk_speed: 4.0` to `5.0`, saves, and the game runs faster *without recompiling*
 
+### 2.4 The Agnostic Engine Rule (Flecs Modules & Naming)
+
+- **MANDATORY**: The C++ engine must be strictly **ERA-AGNOSTIC**. The CPU does not know what a "French Musketeer" is. It only knows: "Entity #4092 has a Transform, Velocity, and RangedWeapon component."
+- **MANDATORY**: The C++ architecture MUST use `flecs::module`. Core engine logic (Spatial Hash, Movement, Matchmaker) belongs in `CoreModule`. Era-specific combat belongs in isolated modules (e.g., `MusketCombatModule`)
+- **FORBIDDEN**: Do NOT name base C++ structs, components, or systems after 18th-century flavor:
+  - *Bad*: `MusketSystem`, `NiterBedComponent`, `CannonballRicochet`
+  - *Good*: `RangedVolleySystem`, `VoxelEmitterComponent`, `KineticProjectileSystem`
+- **WHY**: Modders define the "Flavor" (Muskets, Lasers, Longbows) purely in JSON Prefab files and Godot VAT shaders. The C++ only executes pure mathematics
+
 ---
 
 ## 3. The Core Loop
@@ -522,3 +531,40 @@ func _on_battalion_routed(battalion_id):
 - Like Civilization meets Total War: players run cities simultaneously on the Cartographer's Map
 - When armies collide → zoom in → 60-minute tactical battle using the exact muskets they just spent 2 hours forging
 - Coalition mode nested inside: allies share supply routes on the parchment map
+
+---
+
+## 14. Flecs Module Architecture (The Universal Platform)
+
+> You are not building a "Musket Game." You are building an **Era-Agnostic Massive-Scale Crowd & Logistics Engine**.
+
+### 14.1 Core Engine (Always On)
+
+Spatial Hash Grid, Pathfinding Flow Fields, Day/Night Cycle, Weather, Economy Matchmaker, LLM Prompt Parser, Multiplayer Sync. A flow field doesn't care if the agent carries a musket, a spear, or a laser rifle.
+
+### 14.2 Available Modules
+
+| Module | Components | Systems | Era |
+|---|---|---|---|
+| **MeleeCombat** | `ShieldWall`, `MeleeWeapon`, `ArmorDeflection` | `MeleeScrumPhysics`, `KineticProjectileSystem` (arcs) | Medieval |
+| **LineCombat** | `BlackPowderWeapon`, `FormationAnchor` | `SpringDamperPhysics`, `InverseSieveVolley`, `CellularAtmosphere` | 18th Century |
+| **ModernCombat** | `AutomaticWeapon`, `CoverState`, `SuppressionMeter` | `BoundingOverwatchAI`, `SuppressionSystem` | 20th Century |
+
+### 14.3 Module Mix-and-Match (mod_config.json)
+
+```json
+{
+  "mod_name": "The Great War",
+  "active_modules": [
+    "CoreModule",
+    "ModernCombat_Suppression",
+    "LineCombat_SpringDamper"
+  ],
+  "disabled_modules": [
+    "MeleeCombat",
+    "LineCombat_Volley"
+  ]
+}
+```
+
+A WW1 modder keeps `SpringDamper` for rigid marching behind lines, enables `Suppression` for No Man's Land combat. The LLM General just swaps its prompt file.

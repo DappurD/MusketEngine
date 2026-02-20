@@ -22,6 +22,8 @@
 
 6. **NETWORK SAFETY**: NEVER sync individual soldier/citizen Position/Velocity over the network. The Server owns the authoritative ECS. Server broadcasts macro-state (battalion anchors, death events, inventories) at 10Hz. Clients run local "Visual ECS" — spring-damper physics pull soldiers to server anchors. Player inputs route through Godot RPCs to the Server's C++ Input Queue.
 
+7. **ERA-AGNOSTIC NAMING**: Do NOT name base C++ structs after 18th-century flavor. Use generic math names: `RangedVolleySystem` not `MusketSystem`, `KineticProjectileSystem` not `CannonballRicochet`. Era flavor comes from JSON data files and Godot shaders. Separate code using `flecs::module` — core logic in `CoreModule`, era-specific combat in isolated modules.
+
 ## After Every Task
 Update `STATE.md` with what was built, what changed, and any new bugs.
 
