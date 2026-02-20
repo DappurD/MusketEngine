@@ -24,6 +24,16 @@
 
 7. **ERA-AGNOSTIC NAMING**: Do NOT name base C++ structs after 18th-century flavor. Use generic math names: `RangedVolleySystem` not `MusketSystem`, `KineticProjectileSystem` not `CannonballRicochet`. Era flavor comes from JSON data files and Godot shaders. Separate code using `flecs::module` — core logic in `CoreModule`, era-specific combat in isolated modules.
 
+8. **RENDERING BRIDGE**: NEVER call `set_instance_transform()` in a loop. Pack all transforms into one `PackedFloat32Array` → one `RenderingServer::multimesh_set_buffer()` call per frame.
+
+9. **ECS MUTATION RULE**: Do NOT `add<T>()`/`remove<T>()` for high-frequency states (Reloading, Suppressed). Use `state_flags` bitfield inside existing components. Only add/remove for rare permanent shifts (Death, Conscription).
+
+10. **AIRGAP RULE**: Flecs systems NEVER `#include` Godot headers or call Godot API. Flecs threads + Godot SceneTree = Segfault. Godot reads ECS arrays once per frame on main thread.
+
+11. **DOUBLE PRECISION**: Position/Velocity use `double` (64-bit). 32-bit float jitters at 4km+ from origin.
+
+12. **ASYNC PATHFINDING**: Flow Field recalculations go to background thread. Agents use stale data for 2-3 frames. Main thread never drops frames.
+
 ## After Every Task
 Update `STATE.md` with what was built, what changed, and any new bugs.
 

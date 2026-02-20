@@ -62,6 +62,20 @@ Nothing is faked. 100,000 agents are fully simulated at 60 FPS without dropping 
   - *Good*: `RangedVolleySystem`, `VoxelEmitterComponent`, `KineticProjectileSystem`
 - **WHY**: Modders define the "Flavor" (Muskets, Lasers, Longbows) purely in JSON Prefab files and Godot VAT shaders. The C++ only executes pure mathematics
 
+### 2.5 Implementation Safety Laws (Anti-Crash Protocols)
+
+> These 5 low-level traps will crash the engine or drop to 12 FPS at 50,000+ entities. They must be prevented at the code level.
+
+1. **THE RENDERING BRIDGE**: NEVER update Godot MultiMeshes iteratively from C++. Pack all instance transforms into a single `PackedFloat32Array` and pass it to `RenderingServer::multimesh_set_buffer()` via **one API call per frame**. Iterating 100k `set_instance_transform()` calls chokes the PCI-e bus.
+
+2. **ECS MUTATION RULE**: Do NOT use `add<T>()` / `remove<T>()` for high-frequency combat states (Reloading, Suppressed, Melee). This causes Archetype Fragmentation — Flecs physically moves entities between memory tables, destroying cache coherence. Use a `state_flags` bitfield or enum inside an existing component. Only add/remove for rare permanent shifts (Conscription, Death).
+
+3. **THE AIRGAP RULE**: Flecs C++ systems must NEVER `#include` Godot node headers or call Godot API functions (`Node3D`, `print`, `play_sound`). Flecs worker threads + Godot's single-threaded SceneTree = instant Segfault. Flecs only modifies raw C++ memory. Godot reads ECS arrays once per frame on the main thread via `sync_visuals()`.
+
+4. **DOUBLE PRECISION**: Global `Position` and `Velocity` ECS components must use `double` (64-bit) for world coordinates. 32-bit `float` loses sub-millimeter precision at 4km+ from origin → spring-damper jitter, artillery miscalculation, visual mesh vibration.
+
+5. **ASYNC PATHFINDING**: Massive grid recalculations (Flow Fields after wall destruction, building placement) MUST be dispatched to a background thread. Agents continue using the stale flow field for the 2-3 frames it takes to compute the new one. Main thread never drops a frame.
+
 ---
 
 ## 3. The Core Loop
