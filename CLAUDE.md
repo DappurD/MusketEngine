@@ -18,6 +18,8 @@
 
 4. **NO SCOPE CREEP**: Output complete, compilable functions. Do not refactor outside the immediate task. Do not implement future GDD features unprompted.
 
+5. **DATA-DRIVEN MODDABILITY**: NEVER hardcode gameplay stats (speed, damage, reload time, production cost, stiffness) as magic numbers in C++ systems. ALL dynamic values must come from Flecs Components initialized via JSON files in `res://data/`. The engine must be blind to what a "French Infantry" is — it only reads data and applies physics.
+
 ## After Every Task
 Update `STATE.md` with what was built, what changed, and any new bugs.
 

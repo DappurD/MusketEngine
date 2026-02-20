@@ -46,6 +46,13 @@ Nothing is faked. 100,000 agents are fully simulated at 60 FPS without dropping 
 
 > **When implementing core combat, physics, geometry, or ECS loops, you MUST read `CORE_MATH.md` for the exact C++ algorithms and mathematical proofs.**
 
+### 2.3 The Moddability Mandate (Data-Driven ECS)
+
+- **FORBIDDEN**: Do NOT hardcode gameplay stats (health, speed, reload time, production costs, formation stiffness) inside C++ systems
+- **MANDATORY**: All C++ systems must pull dynamic values from Flecs Components, never from magic numbers
+- **MANDATORY**: Components must be initialized via a C++ JSON parser reading from `res://data/` at startup. The engine treats data as external and mutable
+- **RESULT**: A modder opens `res://data/units.json` in Notepad, changes `walk_speed: 4.0` to `5.0`, saves, and the game runs faster *without recompiling*
+
 ---
 
 ## 3. The Core Loop
@@ -411,3 +418,72 @@ Buy a **Historical Village Kit** (~$50) — not whole houses, but LEGO pieces: 1
 | `res://shaders/terrain_splatmap.gdshader` | Reads C++ trample_count and wetness |
 | `res://ui/diegetic_sitrep.gd` | Parses C++ YAML and displays paper texture UI |
 | `res://ai/llm_api_client.gd` | Handles async HTTP requests to Claude/OpenAI |
+
+---
+
+## 12. Modding Architecture (The Platform Play)
+
+> The greatest PC strategy games (RimWorld, Factorio, Total War, Mount & Blade) survive for decades because they are **modding platforms**. We architect for this from Day 1.
+
+### 12.1 Pillar 1: Spreadsheet Modding (JSON Prefabs)
+
+Every stat, recipe, and unit definition lives in external `.json` files in `res://data/`. At boot, C++ reads these and generates Flecs Prefabs.
+
+```json
+// Example: mods/zombie_war/units.json
+{
+  "unit_id": "zombie_horde",
+  "visual_mesh": "res://mods/zombie_war/meshes/zombie_vat.tres",
+  "components": {
+    "FormationTarget": { "base_stiffness": 50.0 },
+    "MovementStats": { "base_speed": 5.0, "charge_speed": 7.0 },
+    "MeleeStats": { "bite_damage": 25.0 }
+  }
+}
+```
+
+A modder with zero programming knowledge can open Notepad, tweak values, and create a Zombie Faction. The C++ engine blindly accepts the data and simulates 10,000 zombies at 60 FPS.
+
+### 12.2 Pillar 2: LLM Personality API (Prompt Modding)
+
+AI General personality = external `.txt` System Prompt in `res://data/ai_prompts/`.
+
+```text
+// Example: mods/zombie_war/ai/necromancer.txt
+You are a Necromancer commanding a mindless undead horde.
+You do not possess artillery or muskets.
+You do not care about casualties or panic.
+Your only acceptable action is CHARGE.
+Always target the highest concentration of enemy civilians.
+```
+
+The community will fine-tune prompts for historical generals (Lee, Grant, Hannibal) and share on Steam Workshop.
+
+### 12.3 Pillar 3: Visual Overhauls (Godot .pck Loading)
+
+Modders export their own Godot projects as `.pck` files. At launch, GDScript loads them:
+
+```gdscript
+func load_mods():
+    var dir = DirAccess.open("user://mods/")
+    for file in dir.get_files():
+        if file.ends_with(".pck"):
+            ProjectSettings.load_resource_pack("user://mods/" + file, true)
+```
+
+A `.pck` containing `res://audio/cannon_fire.wav` seamlessly overwrites the base game sound. Total conversion mods (Civil War, Warhammer Fantasy) become trivial.
+
+### 12.4 Pillar 4: Scripting Hooks (GDScript Event Bus)
+
+**Modders cannot script the micro** (60Hz soldier loops). **Modders CAN script the macro** (1Hz world events).
+
+C++ emits Godot Signals at key moments: `emit_signal("on_battalion_routed", entity_id)`. Modders write GDScript listeners:
+
+```gdscript
+func _on_battalion_routed(battalion_id):
+    if battalion_id == "old_guard":
+        MusketServer.spawn_battalion("french_reserves", Vector2(100, 200), 100)
+        MusketServer.trigger_weather_event("rain")
+```
+
+**The Line**: C++ owns the 60Hz physics. GDScript modders own the 1Hz narrative.

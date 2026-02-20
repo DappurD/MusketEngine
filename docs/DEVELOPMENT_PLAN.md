@@ -8,6 +8,13 @@
 
 > **Goal**: The game is deeply fun and strategic using only gray cubes and capsules. If the math isn't fun with programmer art, pretty textures won't save it.
 
+### M0.5: The JSON Prefab Loader (Modding Bedrock)
+- [ ] Integrate C++ JSON parser (Godot's built-in `JSON` class via GDExtension, or `nlohmann/json`)
+- [ ] Create `res://data/units.json` and `res://data/buildings.json` with all stats
+- [ ] Write startup logic: engine reads JSON → generates Flecs Prefabs (entity templates)
+- [ ] Create `res://data/ai_prompts/` folder for LLM personality files
+- [ ] **Verify**: Change `walk_speed` in a `.json` file → capsules move faster *without recompiling C++*
+
 ### M1: The ECS Foundation
 - [ ] `world_manager.cpp` — instantiate `flecs::world`, register all components from `musket_components.h`
 - [ ] Expose `MusketServer` singleton to Godot via `ClassDB::bind_method`
