@@ -3,8 +3,6 @@
 *.import
 
 # C++ Build
-cpp/godot-cpp/
-cpp/flecs/
 *.obj
 *.o
 *.os

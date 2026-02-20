@@ -298,6 +298,17 @@ Night shrinks LOS 800m → 40m. Muzzle flashes = 0.5s vision bursts. Work stops 
 
 > See `CORE_MATH.md §8` for VAT shader and acoustic delay GDScript.
 
+### 8.4 The Cartographer's Table (Grand Strategy Map)
+
+- **The Seamless Zoom**: Scrolling past 400m Y-height triggers a seamless transition. Camera projection lerps to Orthogonal. Photorealistic terrain shaders crossfade into a Topographical Parchment map via cloud layer at Y=200m
+- **Diegetic Swaps**: 3D buildings become 2D ink stamps. 100,000 VAT soldiers are culled and replaced by high-fidelity wooden "Board Game Pawns" representing Army Corps. Audio swaps from environmental mud/hammers to "Command Tent" ambiance (rustling paper, cello)
+- **Macro-ECS (SLOD)**: Off-screen regions suspend 60Hz agent pathfinding and run on a 0.1Hz (10-second) abstract math tick. `inventory_iron += abstract_throughput` replaces pathfinding 50 miners
+- **Inter-Regional Logistics**: Player draws splines for Trade Routes between regions. Wooden wagon tokens traverse the parchment map
+- **Operational Maneuver**: Armies consume regional supply lines. Severing a supply route mathematically starves the army
+- **The Zoom-In**: When Army Block collides with LLM General's block → pause → scroll down → parchment dissolves to 3D mud → wooden blocks explode into 10,000 VAT soldiers → Phase 1 Combat begins
+
+> See `CORE_MATH.md §9-10` for the Cartographer's Transition Shader and SLOD system.
+
 ---
 
 ## 9. Visual Art Pipeline & UI

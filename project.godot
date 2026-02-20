@@ -12,9 +12,4 @@ config_version=5
 
 config/name="The Musket Engine"
 config/description="Neuro-Symbolic Napoleonic War & Economy Simulator"
-run/main_scene=""
 config/features=PackedStringArray("4.6", "Forward Plus")
-
-[rendering]
-
-renderer/rendering_method="forward_plus"

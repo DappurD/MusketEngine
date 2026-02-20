@@ -441,3 +441,87 @@ AWAITING ORDERS. Output JSON only.
   "reasoning": "Pin center with 3rd, soften B2. When panic breaks, cavalry charges."
 }
 ```
+
+---
+
+## §10. The Cartographer's Transition Shader (Godot 4)
+
+**Concept**: Applied to the Terrain material to seamlessly blend realities based on camera Y-altitude.
+
+```glsl
+uniform float transition_start_y = 200.0;
+uniform float transition_end_y = 600.0;
+uniform sampler2D parchment_tex;
+uniform sampler2D ink_mask_tex;
+
+void fragment() {
+    // 1. Calculate how high the camera is relative to the world position
+    float cam_y = CAMERA_POSITION_WORLD.y;
+
+    // 2. Create a smooth 0.0 to 1.0 blend factor
+    float blend_factor = clamp(
+        (cam_y - transition_start_y) / (transition_end_y - transition_start_y),
+        0.0, 1.0
+    );
+    blend_factor = smoothstep(0.0, 1.0, blend_factor);
+
+    // 3. Sample both worlds
+    vec3 micro_albedo = get_splatmap_color(); // The realistic mud/grass
+    vec3 macro_paper = texture(parchment_tex, UV * macro_scale).rgb;
+
+    // Overlay topological ink onto the paper
+    float ink = texture(ink_mask_tex, UV * macro_scale).r;
+    vec3 macro_albedo = mix(macro_paper, vec3(0.1, 0.1, 0.15), ink); // Dark blue/black ink
+
+    // 4. The Final Mix based on altitude
+    ALBEDO = mix(micro_albedo, macro_albedo, blend_factor);
+
+    // Smoothly transition from glossy, wet mud to flat, matte paper
+    ROUGHNESS = mix(micro_roughness, 0.95, blend_factor);
+    NORMAL_MAP_DEPTH = mix(1.0, 0.0, blend_factor); // Flatten bumps at altitude
+}
+```
+
+---
+
+## §11. Simulation Level of Detail (C++ SLOD)
+
+**Concept**: C++ suspends expensive 60Hz agent pathfinding for regions not currently viewed. Distant regions run on a 10-second abstract math tick.
+
+```cpp
+struct RegionState {
+    bool is_active_micro;            // True if player is zoomed in on THIS region
+    float macro_tick_timer;
+    int abstract_iron_throughput;     // Pre-calculated average production
+};  // 12 bytes
+
+struct RegionalInventory {
+    int iron_ore;
+    int coal;
+    int tools;
+    int food;
+    int powder;
+    int muskets;
+};  // 24 bytes
+
+// Runs at 1Hz (or slower) for regions that are zoomed OUT
+ecs.system<RegionState, RegionalInventory>("MacroEconomyTick")
+    .iter([](flecs::iter &it, RegionState *state, RegionalInventory *inv) {
+        float dt = it.delta_time();
+        for (int i : it) {
+            if (state[i].is_active_micro) continue; // Skip — fully simulating
+
+            state[i].macro_tick_timer += dt;
+            if (state[i].macro_tick_timer >= 10.0f) { // 10 second tick
+
+                // Instantly resolve mathematical economy without agent pathfinding
+                // Saves massive CPU when managing a multi-region Empire
+                inv[i].iron_ore += state[i].abstract_iron_throughput;
+
+                state[i].macro_tick_timer = 0.0f;
+            }
+        }
+    });
+```
+
+**Edge Cases**: `is_active_micro` toggled by camera zoom level. When zooming back in, the last-known macro state seeds the micro-simulation agents.
