@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+"""
+SConstruct — The Musket Engine GDExtension build.
+Links godot-cpp and Flecs into musket_engine.dll.
+"""
+
+import os
+import sys
+
+# ── godot-cpp ──────────────────────────────────────────────
+env = SConscript("godot-cpp/SConstruct")
+
+# ── Flecs (header-only mode) ──────────────────────────────
+env.Append(CPPPATH=["flecs/"])
+env.Append(CPPDEFINES=["flecs_STATIC"])
+
+# ── Source files ──────────────────────────────────────────
+env.Append(CPPPATH=["src/"])
+
+sources = Glob("src/*.cpp")
+sources += Glob("src/combat/*.cpp")
+sources += Glob("src/economy/*.cpp")
+sources += Glob("src/generation/*.cpp")
+sources += Glob("src/ai/*.cpp")
+sources += Glob("src/ecs/*.cpp")
+
+# Flecs single-header implementation
+sources += Glob("flecs/*.c")
+
+# ── Output library ────────────────────────────────────────
+library = env.SharedLibrary(
+    target="../bin/musket_engine{}".format(env["SHLIBSUFFIX"]),
+    source=sources,
+)
+
+Default(library)

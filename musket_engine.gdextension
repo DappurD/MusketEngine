@@ -1,0 +1,11 @@
+[configuration]
+
+entry_symbol = "musket_engine_init"
+compatibility_minimum = "4.3"
+
+[libraries]
+
+windows.debug.x86_64 = "res://bin/musket_engine.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://bin/musket_engine.windows.template_release.x86_64.dll"
+linux.debug.x86_64 = "res://bin/libmusket_engine.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://bin/libmusket_engine.linux.template_release.x86_64.so"

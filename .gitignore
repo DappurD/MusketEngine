@@ -1,0 +1,24 @@
+# Godot
+.godot/
+*.import
+
+# C++ Build
+cpp/godot-cpp/
+cpp/flecs/
+*.obj
+*.o
+*.os
+*.pyc
+__pycache__/
+.sconsign.dblite
+
+# Binaries (built, not committed)
+bin/*.dll
+bin/*.so
+bin/*.dylib
+bin/*.pdb
+
+# OS
+Thumbs.db
+.DS_Store
+*.tmp
