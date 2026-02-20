@@ -34,6 +34,8 @@
 
 12. **ASYNC PATHFINDING**: Flow Field recalculations go to background thread. Agents use stale data for 2-3 frames. Main thread never drops frames.
 
+13. **ZERO TECHNICAL DEBT**: Every line of code must be state-of-the-art and production-grade. No `// TODO: fix later`, no quick hacks, no "good enough for now" shortcuts. If a proper solution requires more time or external verification, take it.
+
 ## After Every Task
 Update `STATE.md` with what was built, what changed, and any new bugs.
 

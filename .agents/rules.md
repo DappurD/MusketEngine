@@ -22,6 +22,7 @@ You are an Elite C++17 Engine Architect and Godot 4 Technical Artist. We are bui
 ## 4. NO GHOST CODE & NO SCOPE CREEP
 - Output complete, compilable functions. Do not use `// ... rest of code ...` unless explicitly told to.
 - Do NOT "yak shave." Do not optimize or refactor code outside the immediate scope of the user's prompt. Do not implement "future features" from the GDD.
+- **ZERO TECHNICAL DEBT**: Every line of code must be state-of-the-art and production-grade. No `// TODO: fix later`, no quick hacks, no "good enough for now" shortcuts. If a proper solution requires consulting Gemini Deep Think, escalate (Rule 5). If a clean implementation takes longer, take the time. We are building an engine that ships, not a prototype that rots.
 
 ## 5. DEEP THINK ESCALATION PROTOCOL
 When working on any of the following, you MUST pause and ask the user to consult **Gemini Deep Think** before implementing:
