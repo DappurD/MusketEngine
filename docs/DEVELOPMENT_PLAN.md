@@ -199,3 +199,73 @@ M15 (Urbanism) → M16 (Vauban) → M17 (Siege) → M18 (Haussmann)             
        ↓                                                                                      ↓
 M19 (Weather) → M20 (Night) → M21 (Audio) → M22 (Cartographer)              M23 → M24 → M25 (Pitch)
 ```
+
+---
+
+## Git Branch Strategy
+
+### Trunk-Based with Feature Branches
+
+```
+master (always compiles, always launches in Vulkan)
+  │
+  ├── m1/ecs-foundation        ← One branch per milestone
+  ├── m2/battalion-movement
+  ├── m3/volley-combat
+  │   ...
+  ├── m11/civilian-agents      ← Can develop in parallel with m5-m7
+  ├── m12/production-chains
+  └── m13/conscription-bridge  ← MERGE POINT: combat + economy converge
+```
+
+### Rules
+
+1. **One branch per milestone** — named `m{number}/{kebab-case-description}`
+2. **Master is sacred** — must always compile, must always open in Vulkan
+3. **Merge when milestone passes its Verify step** — not before
+4. **No cross-branch dependencies** — M5 (Artillery) never imports from M11 (Citizens)
+5. **Parallel-safe milestones** (can run simultaneously):
+   - M5-M7 (combat units) ∥ M11-M12 (economy)
+   - M8-M10 (LLM General) ∥ M14 (advanced production)
+6. **Sequential milestones** (must merge before starting):
+   - M1 → M2 → M3 (each needs the previous)
+   - M13 (conscription) requires both M7 AND M12 merged first
+
+---
+
+## Naming Conventions
+
+### C++ (The Brain)
+
+| Thing | Convention | Example |
+|---|---|---|
+| **Components** | `PascalCase` struct | `SoldierFormationTarget`, `ArtilleryBattery` |
+| **Tag components** | `PascalCase`, no fields | `IsAlive`, `HaltOrder`, `Veteran` |
+| **Systems** | `"PascalCaseString"` in Flecs | `"MusketSpringDamperPhysics"` |
+| **Source files** | `snake_case.cpp/.h` | `musket_systems.cpp`, `panic_ca.cpp` |
+| **Directories** | `snake_case/` | `cpp/src/combat/`, `cpp/src/economy/` |
+| **Item enums** | `ITEM_UPPER_SNAKE` | `ITEM_BLACK_POWDER`, `ITEM_MUSKET` |
+| **Constants** | `UPPER_SNAKE` | `MAX_SPEED`, `PANIC_THRESHOLD` |
+| **Local variables** | `snake_case` | `hit_chance`, `kinetic_energy` |
+| **Member variables** | `snake_case` (no prefix) | `reload_timer`, `charge_momentum` |
+
+### Godot (The Eyes)
+
+| Thing | Convention | Example |
+|---|---|---|
+| **Scenes** | `snake_case.tscn` | `test_bed.tscn`, `combat_arena.tscn` |
+| **GDScript** | `snake_case.gd` | `musket_sandbox.gd`, `llm_api_client.gd` |
+| **Shaders** | `snake_case.gdshader` | `soldier_vat.gdshader`, `terrain_splatmap.gdshader` |
+| **Resource dirs** | `res://category/` | `res://scenes/`, `res://shaders/`, `res://ui/` |
+| **Node names** | `PascalCase` | `MultiMeshRenderer`, `FlyCamera` |
+| **GDScript funcs** | `snake_case` | `_on_click()`, `update_transforms()` |
+
+### Git
+
+| Thing | Convention | Example |
+|---|---|---|
+| **Feature branches** | `m{N}/{kebab-case}` | `m2/battalion-movement` |
+| **Commit prefix** | `type: description` | `feat:`, `fix:`, `docs:`, `refactor:` |
+| **Commit messages** | lowercase, imperative | `feat: add volley sieve system` |
+| **Tag releases** | `v{phase}.{milestone}` | `v1.2` (Phase 1, Milestone 2 complete) |
+
