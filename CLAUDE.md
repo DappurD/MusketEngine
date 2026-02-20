@@ -1,0 +1,27 @@
+# THE MUSKET ENGINE — AI AGENT RULES
+
+> **READ BEFORE WRITING ANY CODE.** These rules apply to ALL AI assistants working in this repository.
+
+## Mandatory Reading Order
+1. `docs/GDD.md` — Full game design (especially §2: The 4 Unbreakable Rules)
+2. `docs/CORE_MATH.md` — All C++ algorithms & shader code (DO NOT reinvent)
+3. `docs/DEVELOPMENT_PLAN.md` — Phase plan, branch strategy, naming conventions
+4. `STATE.md` — Current progress, known bugs, immediate next step
+
+## The 4 Unbreakable Rules
+
+1. **ARCHITECTURAL BOUNDARY**: ALL game logic lives in C++ via Flecs ECS. Godot GDScript is ONLY a renderer/UI client. NEVER write game state, health, movement math, or timers in `.gd` files.
+
+2. **DATA-ORIENTED DESIGN ONLY**: No OOP class hierarchies for entities. No `CharacterBody3D` for agents. Components are POD structs (< 32 bytes). Systems iterate via `ecs.query().each()`.
+
+3. **ANTI-HALLUCINATION**: We use Godot 4.x GDExtension (`ClassDB::bind_method`). We use Flecs C++17 API. If unsure about an API, search `cpp/godot-cpp/` headers. Do NOT guess.
+
+4. **NO SCOPE CREEP**: Output complete, compilable functions. Do not refactor outside the immediate task. Do not implement future GDD features unprompted.
+
+## After Every Task
+Update `STATE.md` with what was built, what changed, and any new bugs.
+
+## Naming Conventions
+- C++ components: `PascalCase` — C++ files: `snake_case.cpp`
+- Godot scenes: `snake_case.tscn` — Godot nodes: `PascalCase`
+- Git branches: `m{N}/{kebab-case}` — Commits: `type: lowercase imperative`
