@@ -6,8 +6,9 @@
 **Phase 1: Combat Prototype (Marketing Demo)** — Dependencies set up, first compile successful.
 
 ## Project Identity
-- **Game**: The Musket Engine — Neuro-Symbolic Napoleonic War & Economy Simulator
-- **Engine**: Godot 4.6 + GDExtension (`musket_engine.dll`) + Flecs ECS (C++)
+- **Engine**: Dengine — Dennis's Era-Agnostic Crowd & Logistics Engine (C++ Flecs ECS)
+- **Game**: The Musket Engine — Neuro-Symbolic Napoleonic War & Economy Simulator (first game on Dengine)
+- **Runtime**: Godot 4.6 + GDExtension (`musket_engine.dll`) + Flecs ECS
 - **Architecture**: Data-Oriented Design (DOD). C++ = Brain. Godot = Eyes. Never mix.
 - **Renderer**: **Vulkan / Forward+**. If Vulkan crashes, we broke something — debug, don't switch.
 

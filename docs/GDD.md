@@ -1,6 +1,7 @@
 # THE MUSKET ENGINE
 ## Master Technical Game Design Document (GDD)
 ### A Neuro-Symbolic Napoleonic War & Economy Simulator
+### Built on **Dengine** — Dennis's Era-Agnostic Crowd & Logistics Engine
 
 > *"You won the battle because you spent 3 hours optimizing a sheep farm."*
 
@@ -548,9 +549,9 @@ func _on_battalion_routed(battalion_id):
 
 ---
 
-## 14. Flecs Module Architecture (The Universal Platform)
+## 14. Dengine: Flecs Module Architecture (The Universal Platform)
 
-> You are not building a "Musket Game." You are building an **Era-Agnostic Massive-Scale Crowd & Logistics Engine**.
+> **Dengine** is the era-agnostic C++ ECS engine core. **The Musket Engine** is the first game built on it. Future titles (Medieval, Modern, Sci-Fi) swap modules and JSON data — the engine travels with you.
 
 ### 14.1 Core Engine (Always On)
 
