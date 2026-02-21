@@ -64,6 +64,10 @@ public:
   // --- M6: Cavalry API ---
   void spawn_test_cavalry(int count, float x, float z, int team_id);
   void order_charge(int team_id, float target_x, float target_z);
+
+  // --- M7.5: Fire Discipline + Formation API ---
+  void order_fire_discipline(int battalion_id, int discipline_enum);
+  void order_formation(int battalion_id, int shape_enum);
 };
 
 } // namespace godot

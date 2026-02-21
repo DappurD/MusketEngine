@@ -261,6 +261,14 @@ void MusketServer::_bind_methods() {
   ClassDB::bind_method(
       D_METHOD("order_charge", "team_id", "target_x", "target_z"),
       &MusketServer::order_charge);
+
+  // M7.5: Fire Discipline + Formation API
+  ClassDB::bind_method(
+      D_METHOD("order_fire_discipline", "battalion_id", "discipline_enum"),
+      &MusketServer::order_fire_discipline);
+  ClassDB::bind_method(
+      D_METHOD("order_formation", "battalion_id", "shape_enum"),
+      &MusketServer::order_formation);
 }
 
 void MusketServer::_ready() {
@@ -701,6 +709,160 @@ void MusketServer::order_charge(int team_id, float target_x, float target_z) {
     UtilityFunctions::print(
         "[MusketEngine] Charge -> fallback coords (No enemies found)");
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// M7.5: FIRE DISCIPLINE + FORMATION API
+// ═══════════════════════════════════════════════════════════
+
+void MusketServer::order_fire_discipline(int battalion_id,
+                                         int discipline_enum) {
+  if (battalion_id < 0 || battalion_id >= MAX_BATTALIONS)
+    return;
+  if (discipline_enum < 0 || discipline_enum > 3)
+    return;
+
+  // Feed into M7 Drummer Latency Pipeline
+  g_pending_orders[battalion_id].type = ORDER_DISCIPLINE;
+  g_pending_orders[battalion_id].requested_discipline =
+      (uint8_t)discipline_enum;
+  g_pending_orders[battalion_id].delay =
+      g_macro_battalions[battalion_id].drummer_alive ? 2.0f : 8.0f;
+
+  UtilityFunctions::print("[MusketEngine] Fire discipline → bat ", battalion_id,
+                          " discipline=", discipline_enum);
+}
+
+void MusketServer::order_formation(int battalion_id, int shape_enum) {
+  if (battalion_id < 0 || battalion_id >= MAX_BATTALIONS)
+    return;
+
+  auto &mb = g_macro_battalions[battalion_id];
+  if (mb.alive_count == 0)
+    return;
+
+  FormationShape shape = (FormationShape)shape_enum;
+
+  // M7.5 §12.1: Formation geometry constants
+  constexpr float SP_X = 0.8f;
+  constexpr float SP_Z = 1.2f;
+  constexpr int RANKS = 3;
+
+  int N = mb.alive_count; // Includes command staff
+  float cx = mb.cx;
+  float cz = mb.cz;
+  float dir_x = mb.dir_x;
+  float dir_z = mb.dir_z;
+
+  // Calculate formation dimensions
+  int cols, ranks;
+  float defense, speed;
+  bool front_only_shoot = false;
+
+  if (shape == SHAPE_LINE) {
+    ranks = RANKS;
+    cols = (int)std::ceil((float)N / ranks);
+    defense = 0.2f;
+    speed = 4.0f;
+  } else if (shape == SHAPE_COLUMN) {
+    cols = 16; // 16-wide column
+    ranks = (int)std::ceil((float)N / cols);
+    defense = 0.5f;
+    speed = 6.0f;
+    front_only_shoot = true;
+  } else { // SHAPE_SQUARE
+    int per_side = (int)std::ceil((float)N / 4.0f);
+    cols = per_side;
+    ranks = per_side;
+    defense = 0.9f;
+    speed = 2.0f;
+    front_only_shoot = true;
+  }
+
+  // Update OBB extents (persistent)
+  mb.ext_w = (cols * SP_X) / 2.0f + 2.0f;
+  mb.ext_d = (ranks * SP_Z) / 2.0f + 2.0f;
+
+  // Universal rotation helper: local offset → global coordinates
+  auto rotate = [&](float lx, float lz, float &gx, float &gz) {
+    gx = -lx * dir_z - lz * dir_x;
+    gz = lx * dir_x - lz * dir_z;
+  };
+
+  // Trap 29: Running index inside ecs.each() — zero heap allocation
+  int slot = 0;
+  ecs.each([&](flecs::entity e, const BattalionId &b,
+               SoldierFormationTarget &tgt, FormationDefense &fd) {
+    if ((int)(b.id % MAX_BATTALIONS) != battalion_id || !e.has<IsAlive>())
+      return;
+
+    // Determine local offset based on shape
+    float ox = 0.0f, oz = 0.0f;
+    float local_aim_x = 0.0f, local_aim_z = -1.0f;
+    int r = 0;
+    bool can_shoot = true;
+
+    if (shape == SHAPE_LINE) {
+      r = slot % RANKS;
+      int c = slot / RANKS;
+      ox = (c - cols / 2) * SP_X;
+      oz = r * SP_Z;
+    } else if (shape == SHAPE_COLUMN) {
+      r = slot / cols;
+      int c = slot % cols;
+      ox = (c - cols / 2) * SP_X;
+      oz = r * SP_Z;
+      can_shoot = (r == 0); // Only front rank fires
+    } else {                // SHAPE_SQUARE
+      int side = slot % 4;
+      int pos_on_side = slot / 4;
+      int per_side = (int)std::ceil((float)N / 4.0f);
+      r = pos_on_side % RANKS;
+
+      float half = (per_side * SP_X) / 2.0f;
+      float depth = r * SP_Z;
+      if (side == 0) {
+        ox = (pos_on_side - per_side / 2) * SP_X;
+        oz = -half - depth;
+        local_aim_x = 0.0f;
+        local_aim_z = -1.0f;
+      } else if (side == 1) {
+        ox = half + depth;
+        oz = (pos_on_side - per_side / 2) * SP_X;
+        local_aim_x = 1.0f;
+        local_aim_z = 0.0f;
+      } else if (side == 2) {
+        ox = (pos_on_side - per_side / 2) * SP_X;
+        oz = half + depth;
+        local_aim_x = 0.0f;
+        local_aim_z = 1.0f;
+      } else {
+        ox = -half - depth;
+        oz = (pos_on_side - per_side / 2) * SP_X;
+        local_aim_x = -1.0f;
+        local_aim_z = 0.0f;
+      }
+      can_shoot = (r == 0); // Only outermost rank fires per face
+    }
+
+    // Rotate to global
+    float gx, gz, gax, gaz;
+    rotate(ox, oz, gx, gz);
+    rotate(local_aim_x, local_aim_z, gax, gaz);
+
+    tgt.target_x = (double)(cx + gx);
+    tgt.target_z = (double)(cz + gz);
+    tgt.face_dir_x = gax;
+    tgt.face_dir_z = gaz;
+    tgt.can_shoot = can_shoot;
+    tgt.rank_index = (uint8_t)r;
+    fd.defense = defense;
+
+    slot++;
+  });
+
+  UtilityFunctions::print("[MusketEngine] Formation → bat ", battalion_id,
+                          " shape=", shape_enum, " (", slot, " soldiers)");
 }
 
 } // namespace godot
