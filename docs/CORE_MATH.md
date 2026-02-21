@@ -733,5 +733,40 @@ auto intersects = [&](float ax, float az, float bx, float bz,
 - **Skirmisher Retreat**: OBB intersection blocks main line fire until skirmishers clear
 - **Oblique Fire**: dot = 0.7 (30° angle) → allowed but 70% accuracy → incentivizes wheeling parallel
 
+### §12.9 M7.5 Audit Traps (Deep Think)
+
+```
+// TRAP 25: alignas(32) → alignas(64)
+// SoldierFormationTarget uses doubles for target_x/z (Trap 10: precision at 4km).
+// double(16) + floats(16) + bool/uint8(2) = 34 bytes → pads to 64.
+// Use alignas(64) so 1 soldier = exactly 1 L1 cache line.
+
+// TRAP 26: O(B²) Macro Friendly Fire — HOIST TO CENTROID PASS
+// Do NOT run the friendly OBB check per-soldier. Run it ONCE per battalion.
+// In compute_battalion_centroids:
+//   for each battalion A (alive, team X):
+//     for each battalion B (alive, enemy team):
+//       check all friendly OBBs between A and B
+//       if clear → A.target_bat_id = B
+// Soldiers read g_macro_battalions[my_bat].target_bat_id → O(1).
+// Cost: 256×256 = 65K total (< 0.1ms) vs 32M per-soldier (instant death).
+
+// TRAP 27: Routing Sniper Bug
+// Routing soldiers sprint away from enemies at 5m/s.
+// Without .without<Routing>(), they continue to fire over their shoulders.
+// Fix: VolleyFireSystem must have .without<Routing>() in query.
+
+// TRAP 28: Spawn Stagger vs Fire Discipline Collision
+// Do NOT stagger reload_timer at spawn (0s/2s/4s).
+// Spawn everyone with reload_timer = 0. Let FireDiscipline handle timing.
+// AT_WILL → stateless jitter handles organic popcorn effect.
+// BY_RANK → Officer's Metronome handles the 3s rolling stagger.
+
+// TRAP 29: std::vector in order_formation → Heap Allocation
+// Do NOT gather entities into std::vector<flecs::entity>.
+// Use a running index counter inside ecs.each() with in-place .set<>().
+```
+
+
 
 
