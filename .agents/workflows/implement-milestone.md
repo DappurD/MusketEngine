@@ -137,7 +137,29 @@ cd "c:\Godot Project\MusketEngine\cpp"; python -m SCons platform=windows target=
 Expected: `scons: done building targets.` with zero errors.
 Only acceptable warning: `flecs_STATIC macro redefinition`.
 
-If there are errors: fix them. Do NOT proceed to Step 6 with broken code.
+If there are errors: fix them. Do NOT proceed to Step 5b with broken code.
+
+---
+
+## Step 5b: Runtime Test (MANDATORY)
+
+> **"Compiles" ≠ "works." You MUST launch Godot and verify the game runs.**
+
+```
+& "C:\Users\denni\Godot_v4.6-stable_win64.exe" --path "c:\Godot Project\MusketEngine" --rendering-driver opengl3
+```
+
+### Verification Checklist
+After the editor opens and you run the test scene (`F5` or Play):
+
+- [ ] **No crash on startup** — the DLL loaded and singletons initialized
+- [ ] **Existing systems still work** — soldiers move, fire, panic, cavalry charges
+- [ ] **New systems don't break old ones** — spatial hash didn't corrupt targeting
+- [ ] **Console shows no errors** — check Godot output panel for red text
+
+If new systems don't have visual output yet (e.g., M9 citizens aren't spawned by the testbed), that's OK — the test is that the engine **doesn't crash** and existing behavior is preserved.
+
+> **If the game crashes: STOP. Do NOT proceed to Step 6. Fix the crash first, rebuild, retest.**
 
 ---
 
