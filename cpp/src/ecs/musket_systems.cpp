@@ -33,8 +33,8 @@ void register_movement_systems(flecs::world &ecs) {
         if (dt <= 0.0f)
           return;
 
-        float dx = target.target_x - p.x;
-        float dz = target.target_z - p.z;
+        float dx = (float)target.target_x - p.x;
+        float dz = (float)target.target_z - p.z;
 
         // M7 Phase A: Apply flag cohesion decay (Trap 21: floor at 0.2)
         uint32_t bat_id = bat.id % MAX_BATTALIONS;
