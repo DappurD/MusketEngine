@@ -648,3 +648,30 @@ float score = true_dist_sq + (lateral_offset * lateral_offset * 5.0f);
 // Result: continuous rolling fire every ~2.7s instead of one boom + 8s silence
 ```
 
+### §12.7 Fire Discipline (Doctrine Gates)
+
+```
+// FireDiscipline state machine (stored in MacroBattalion, O(1) lookup):
+//   HOLD        → Soldiers reload but do NOT fire. Tension builds.
+//   AT_WILL     → Fire whenever reload_timer == 0 (default, uncoordinated)
+//   BY_RANK     → Only active_firing_rank may shoot. Cycles 0→1→2 every 3.0s
+//   MASS_VOLLEY → ALL soldiers fire within a 0.5s window, then revert to HOLD
+
+// Officer's Metronome (ticked in compute_battalion_centroids):
+//   BY_RANK:     volley_timer -= dt; if <= 0 → advance rank, reset to 3.0
+//   MASS_VOLLEY: volley_timer -= dt; if <= 0 → revert to HOLD
+//   Dead officer → force AT_WILL (loss of fire discipline)
+
+// Stateless Aim Jitter (deterministic 0–0.5s delay per soldier):
+//   jitter = (entity_id % 100) / 200.0f
+//   Mass Volley: elapsed = 0.5 - volley_timer; if elapsed < jitter → skip
+//   By Rank:     elapsed = 3.0 - volley_timer; if elapsed < jitter → skip
+//   Result: rolling KRRR-CRACK! sound spread over 0.5s instead of 166 identical audio samples
+
+// Tactical math (why Mass Volley > At Will):
+//   At Will:     15 kills over 15s → +0.20 fear each → cleansed by drummer
+//   Mass Volley: 15 kills in 1 frame → +3.0 fear spike → instantly exceeds 0.65 route threshold
+//   Conclusion:  Synchronized fire exploits the CA grid's per-tick accumulation
+```
+
+
