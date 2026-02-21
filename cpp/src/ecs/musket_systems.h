@@ -20,9 +20,6 @@ void register_artillery_systems(flecs::world &ecs);
 // M6: Cavalry (charge momentum, impact, disorder)
 void register_cavalry_systems(flecs::world &ecs);
 
-// M6: Pre-pass — call BEFORE ecs.progress() every frame
-void compute_battalion_centroids();
-
 } // namespace musket
 
 #endif // MUSKET_SYSTEMS_H

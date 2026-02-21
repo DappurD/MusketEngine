@@ -2,18 +2,14 @@
 #include "musket_components.h"
 #include <cmath>
 
-// DEFINITION: allocates the MacroBattalion centroid cache (ODR-safe)
-// Declared extern in musket_components.h, defined here exactly once.
-MacroBattalion g_macro_battalions[MAX_BATTALIONS];
+// NOTE: g_macro_battalions is defined in world_manager.cpp (the golden TU).
+// ecs.each<> template statics must share the TU where components are registered.
 
 namespace musket {
 
-// Persistent query handle — built ONCE in register_cavalry_systems()
-static flecs::query<const Position, const BattalionId> q_centroids;
-
 void register_movement_systems(flecs::world &ecs) {
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   // SYSTEM 1: Spring-Damper Formation Physics (CORE_MATH.md §1)
   //
   // DeepThink-verified math. Soldiers are physics particles
@@ -23,7 +19,7 @@ void register_movement_systems(flecs::world &ecs) {
   // NOTE: CORE_MATH.md shows Flecs v3 .iter() syntax.
   //       Flecs v4.1.4 system_builder only has .each().
   //       Math is identical; only the lambda signature changed.
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   ecs.system<Position, Velocity, const SoldierFormationTarget>(
          "SpringDamperPhysics")
       .with<IsAlive>()
@@ -66,13 +62,13 @@ void register_movement_systems(flecs::world &ecs) {
         p.z += v.vz * dt;
       });
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   // SYSTEM 2: Formation March Order
   //
   // When a soldier has a MovementOrder, slide their formation
   // slot target toward the order destination each frame.
   // Once the slot arrives, mark the order as complete.
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   ecs.system<SoldierFormationTarget, MovementOrder>("FormationOrderMove")
       .with<IsAlive>()
       .each([](flecs::entity e, SoldierFormationTarget &target,
@@ -108,9 +104,9 @@ void register_movement_systems(flecs::world &ecs) {
       });
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // M3: VOLLEY COMBAT SYSTEMS (CORE_MATH.md §2)
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 
 void register_combat_systems(flecs::world &ecs) {
 
@@ -213,9 +209,9 @@ void register_combat_systems(flecs::world &ecs) {
       });
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // M4: PANIC & MORALE SYSTEMS (CORE_MATH.md §4)
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 
 void register_panic_systems(flecs::world &ecs) {
 
@@ -399,9 +395,9 @@ void register_panic_systems(flecs::world &ecs) {
       });
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // M5: ARTILLERY SYSTEMS (CORE_MATH.md §3, GDD §5.2)
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 
 void register_artillery_systems(flecs::world &ecs) {
 
@@ -648,47 +644,17 @@ void register_artillery_systems(flecs::world &ecs) {
       });
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // M6: CAVALRY SYSTEMS (Deep Think #3 + #4)
 //
 // Deep Think #3: Ballistic kinematics (locked direction vector)
 // Deep Think #4: Battalion centroids, parallel vector rule
-// ═══════════════════════════════════════════════════════════════
-
-// ── Standalone Function: Compute Battalion Centroids ──────────
-// Called from _process() BEFORE ecs.progress(). Uses pre-registered
-// query (no ad-hoc allocation — Deep Think #4 key insight).
-void compute_battalion_centroids() {
-  // 1. Zero the cache
-  for (int i = 0; i < MAX_BATTALIONS; i++) {
-    g_macro_battalions[i].cx = 0.0f;
-    g_macro_battalions[i].cz = 0.0f;
-    g_macro_battalions[i].alive_count = 0;
-  }
-
-  // 2. Accumulate using the CACHED persistent query
-  q_centroids.each([](const Position &p, const BattalionId &b) {
-    uint32_t id = b.id % MAX_BATTALIONS;
-    g_macro_battalions[id].cx += p.x;
-    g_macro_battalions[id].cz += p.z;
-    g_macro_battalions[id].alive_count++;
-  });
-
-  // 3. Finalize (divide by count)
-  for (int i = 0; i < MAX_BATTALIONS; i++) {
-    if (g_macro_battalions[i].alive_count > 0) {
-      g_macro_battalions[i].cx /= (float)g_macro_battalions[i].alive_count;
-      g_macro_battalions[i].cz /= (float)g_macro_battalions[i].alive_count;
-    }
-  }
-}
+// ═════════════════════════════════════════════════════════════
 
 void register_cavalry_systems(flecs::world &ecs) {
 
-  // Build the centroid query EXACTLY ONCE (Deep Think #4)
-  q_centroids = ecs.query_builder<const Position, const BattalionId>()
-                    .with<IsAlive>()
-                    .build();
+  // CRITICAL FIX: Deleted explicit component re-registrations and static query
+  // to avoid TU Component ID mismatches and DLL lifecycle traps.
 
   // ── System: Cavalry Ballistic Kinematics (60Hz) ─────────────
   // Handles ALL cavalry movement in states 1 (Charging) and
@@ -715,7 +681,7 @@ void register_cavalry_systems(flecs::world &ecs) {
           float t = cs.state_timer / 1.5f;
           if (t > 1.0f)
             t = 1.0f;
-          cs.charge_momentum = 2.0f * t * t * t; // Max 2.0 — ~6 kills vs Line
+          cs.charge_momentum = 1.2f * t * t * t; // Max 1.2 — ~3-4 kills vs Line
 
           // Speed from locked direction vector
           float current_speed =

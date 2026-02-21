@@ -8,6 +8,54 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+// ═══════════════════════════════════════════════════════════════
+// GOLDEN TU: Array and centroid function MUST live here.
+// ecs.each<> resolves Flecs component IDs from TU-local static
+// template variables. These must share the TU where components
+// are registered to get the correct IDs (MSVC TU mismatch rule).
+// ═══════════════════════════════════════════════════════════════
+MacroBattalion g_macro_battalions[MAX_BATTALIONS];
+
+static void compute_battalion_centroids(flecs::world &ecs) {
+  // 1. Zero the cache
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    g_macro_battalions[i].cx = 0.0f;
+    g_macro_battalions[i].cz = 0.0f;
+    g_macro_battalions[i].alive_count = 0;
+    g_macro_battalions[i].team_id = 999;
+  }
+
+  // 2. Accumulate — ecs.each<> uses the correct IDs in this TU
+  ecs.each([](flecs::entity e, const Position &p, const BattalionId &b,
+              const TeamId &t) {
+    if (!e.has<IsAlive>())
+      return;
+    uint32_t id = b.id % MAX_BATTALIONS;
+    g_macro_battalions[id].cx += p.x;
+    g_macro_battalions[id].cz += p.z;
+    g_macro_battalions[id].alive_count++;
+    g_macro_battalions[id].team_id = t.team;
+  });
+
+  // 3. Finalize
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    if (g_macro_battalions[i].alive_count > 0) {
+      g_macro_battalions[i].cx /= (float)g_macro_battalions[i].alive_count;
+      g_macro_battalions[i].cz /= (float)g_macro_battalions[i].alive_count;
+    }
+  }
+
+  // 4. Diagnostic (every 2s at 60Hz)
+  static int tick = 0;
+  if (tick++ % 120 == 0) {
+    godot::UtilityFunctions::print(
+        "[CENTROIDS] Bat0: alive=", g_macro_battalions[0].alive_count,
+        " cx=", g_macro_battalions[0].cx, " cz=", g_macro_battalions[0].cz,
+        " | Bat1: alive=", g_macro_battalions[1].alive_count,
+        " cx=", g_macro_battalions[1].cx, " cz=", g_macro_battalions[1].cz);
+  }
+}
+
 namespace godot {
 
 MusketServer::MusketServer() {}
@@ -160,6 +208,7 @@ void MusketServer::spawn_test_battalion(int count, float center_x,
         .set<SoldierFormationTarget>({x, z, 50.0f, 2.0f})
         .set<MovementStats>({4.0f, 8.0f})
         .set<TeamId>({(uint8_t)team_id})
+        .set<BattalionId>({bat_id})
         .set<MusketState>({0.0f, 30, 13})
         .set<FormationDefense>({0.2f}) // Line formation by default
         .set<RenderSlot>({bat_id, mm_slot})
@@ -226,8 +275,9 @@ void MusketServer::_process(double delta) {
     return;
   }
 
-  // Pre-pass: battalion centroids (Deep Think #4, cached query)
-  musket::compute_battalion_centroids();
+  // Pre-pass: battalion centroids (GOLDEN TU — same TU as component
+  // registration)
+  compute_battalion_centroids(ecs);
 
   // Tick the ECS world
   ecs.progress(delta);
@@ -358,6 +408,7 @@ void MusketServer::spawn_test_cavalry(int count, float x, float z,
         .set<SoldierFormationTarget>({cx, cz, 30.0f, 1.5f})
         .set<MovementStats>({4.0f, 12.0f}) // Walk 4, Charge 12
         .set<TeamId>({(uint8_t)team_id})
+        .set<BattalionId>({bat_id})
         .set<CavalryState>({0.0f, 0.0f, 0.0f, 0.0f, 0, 0})
         .set<RenderSlot>({bat_id, mm_slot})
         .add<IsAlive>();
@@ -368,106 +419,92 @@ void MusketServer::spawn_test_cavalry(int count, float x, float z,
 }
 
 void MusketServer::order_charge(int team_id, float target_x, float target_z) {
-  // ── Phase B: Battalion-level targeting (Deep Think #4) ──
-  // Read from g_macro_battalions (pre-computed by cached query every frame).
-  // query_builder is safe here — called on key press, not 60/sec.
-
   // Find cavalry centroid for this team
   float cav_cx = 0, cav_cz = 0;
-  int cav_n = 0;
+  int cav_count = 0;
 
-  auto cq =
-      ecs.query_builder<const Position, const CavalryState, const TeamId>()
-          .with<IsAlive>()
-          .build();
-
-  cq.each([&](const Position &p, const CavalryState &, const TeamId &t) {
-    if (t.team != (uint8_t)team_id)
+  // EPHEMERAL EACH: Searches instantly, leaves zero memory footprint!
+  ecs.each([&](flecs::entity e, const Position &p, CavalryState &cs,
+               const TeamId &t) {
+    if (!e.has<IsAlive>())
       return;
-    cav_cx += p.x;
-    cav_cz += p.z;
-    cav_n++;
+    if (t.team == (uint8_t)team_id) {
+      cav_cx += p.x;
+      cav_cz += p.z;
+      cav_count++;
+    }
   });
 
-  if (cav_n == 0) {
+  if (cav_count == 0) {
     UtilityFunctions::print("[MusketEngine] No cavalry alive on team ",
                             team_id);
     return;
   }
-  cav_cx /= (float)cav_n;
-  cav_cz /= (float)cav_n;
+  cav_cx /= cav_count;
+  cav_cz /= cav_count;
 
-  // Find nearest enemy battalion from pre-computed centroids
-  float best_d2 = 1e18f;
-  int best_bat = -1;
+  // Find Nearest Enemy Battalion safely using the cached Team ID
+  float best_dist = 999999.0f;
+  int best_target = -1;
+
   for (int i = 0; i < MAX_BATTALIONS; i++) {
     auto &mb = g_macro_battalions[i];
     if (mb.alive_count == 0)
       continue;
+    if (mb.team_id == (uint32_t)team_id)
+      continue; // Safely skip allies!
 
-    // Skip our own team's battalions
-    // We need team info — check if this battalion has enemy entities
-    // Simple heuristic: compute distance, skip if it's our cavalry
     float dx = mb.cx - cav_cx;
     float dz = mb.cz - cav_cz;
-    float d2 = dx * dx + dz * dz;
+    float d2 = (dx * dx) + (dz * dz);
 
-    // Skip if too close (likely our own cavalry battalion)
-    if (d2 < 25.0f)
-      continue;
-
-    if (d2 < best_d2) {
-      best_d2 = d2;
-      best_bat = i;
+    if (d2 < best_dist) {
+      best_dist = d2;
+      best_target = i;
     }
   }
 
-  // Fall back to passed coordinates if no target found
-  float tx = target_x, tz = target_z;
-  if (best_bat >= 0) {
-    tx = g_macro_battalions[best_bat].cx;
-    tz = g_macro_battalions[best_bat].cz;
-    UtilityFunctions::print("[MusketEngine] Charge → bat ", best_bat, " at (",
-                            (int)tx, ",", (int)tz, ") dist ",
-                            (int)std::sqrt(best_d2), "m");
+  if (best_target != -1) {
+    UtilityFunctions::print("[MusketEngine] Charge → bat ", best_target);
+
+    float target_cx = g_macro_battalions[best_target].cx;
+    float target_cz = g_macro_battalions[best_target].cz;
+
+    int committed = 0;
+    ecs.each([&](flecs::entity e, const Position &p, CavalryState &cs,
+                 const TeamId &t) {
+      if (!e.has<IsAlive>())
+        return;
+      if (t.team != (uint8_t)team_id)
+        return;
+      if (cs.state_flags != 0)
+        return; // Skip already charging/disordered
+
+      // Compute parallel charge vector toward enemy centroid
+      float dx = target_cx - p.x;
+      float dz = target_cz - p.z;
+      float dist = std::sqrt(dx * dx + dz * dz);
+      if (dist < 0.01f)
+        return;
+
+      cs.lock_dir_x = dx / dist;
+      cs.lock_dir_z = dz / dist;
+      cs.state_flags = 1; // → Charging
+      cs.state_timer = 0.0f;
+      cs.charge_momentum = 0.0f;
+
+      ChargeOrder order;
+      order.target_battalion_id = best_target;
+      order.is_committed = true;
+      e.set<ChargeOrder>(order);
+      committed++;
+    });
+    UtilityFunctions::print("[MusketEngine] ", committed,
+                            " cavalry committed to charge");
   } else {
-    UtilityFunctions::print("[MusketEngine] Charge → fallback coords (",
-                            target_x, ", ", target_z, ")");
+    UtilityFunctions::print(
+        "[MusketEngine] Charge -> fallback coords (No enemies found)");
   }
-
-  // Compute PARALLEL macro-vector (Deep Think #4)
-  // All horses get the SAME direction — wide frontage, no V-shape pinch
-  float mdx = tx - cav_cx;
-  float mdz = tz - cav_cz;
-  float mdist = std::sqrt(mdx * mdx + mdz * mdz);
-  float lock_x = 0.0f, lock_z = 1.0f;
-  if (mdist > 0.01f) {
-    lock_x = mdx / mdist;
-    lock_z = mdz / mdist;
-  }
-
-  // Apply to all cavalry — instant charge with parallel vectors
-  auto q =
-      ecs.query_builder<CavalryState, const TeamId>().with<IsAlive>().build();
-
-  int charged = 0;
-  q.each([&](flecs::entity e, CavalryState &cs, const TeamId &t) {
-    if (t.team != (uint8_t)team_id)
-      return;
-    if (cs.state_flags != 0)
-      return; // Already charging/disordered
-
-    cs.lock_dir_x = lock_x; // Same vector for ALL horses
-    cs.lock_dir_z = lock_z;
-    cs.state_flags = 1;
-    cs.state_timer = 0.0f;
-    cs.charge_momentum = 0.0f;
-    e.add<ChargeOrder>();
-    charged++;
-  });
-
-  UtilityFunctions::print("[MusketEngine] ", charged,
-                          " cavalry committed to charge");
 }
 
 } // namespace godot

@@ -106,14 +106,19 @@ struct MacroBattalion {
   float cx = 0.0f;
   float cz = 0.0f;
   int alive_count = 0;
-}; // 12 bytes
+  uint32_t team_id = 999; // Added so cavalry knows who to target safely
+}; // 16 bytes
 
 // EXTERN: declared here, defined ONCE in musket_systems.cpp
 constexpr int MAX_BATTALIONS = 256;
 extern MacroBattalion g_macro_battalions[MAX_BATTALIONS];
 
-struct ChargeOrder {}; // Tag — triggers charge state (Phase C: promote to POD)
-struct Disordered {};  // Tag — post-charge vulnerability
+struct ChargeOrder {
+  uint32_t target_battalion_id;
+  bool is_committed;
+  uint8_t pad[3];
+}; // 8 bytes — triggers charge state (Phase C: promote to POD)
+struct Disordered {}; // Tag — post-charge vulnerability
 
 // ─── Rendering: Battalion Chunking ────────────────────────
 // Maps each entity to a stable slot in a battalion's shadow buffer.
