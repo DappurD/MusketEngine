@@ -135,84 +135,106 @@ void register_combat_systems(flecs::world &ecs) {
         }
       });
 
-  // ── System 4: Volley Fire (60Hz, fires when ready) ──────────
-  // Simplified Inverse Sieve: each ready firer targets the
-  // nearest living enemy within MAX_MUSKET_RANGE.
-  // Full grid-walk sieve deferred to M3.5.
-  ecs.system<const Position, MusketState, const FireOrder, const TeamId>(
-         "VolleyFireSystem")
+  // ── System 4: Volley Fire (M7.5 §12.7-§12.8) ────────────────
+  // Doctrine gates, firing arc, O(1) hoisted targeting, stateless jitter.
+  ecs.system<const Position, MusketState, const SoldierFormationTarget,
+             const BattalionId, const TeamId>("VolleyFireSystem")
       .with<IsAlive>()
+      .without<Routing>() // Trap 27: Routing soldiers DO NOT fire!
       .each([](flecs::entity e, const Position &pos, MusketState &ms,
-               const FireOrder &fire, const TeamId &team) {
-        // Not ready to fire yet
-        if (ms.reload_timer > 0.0f)
+               const SoldierFormationTarget &tgt, const BattalionId &bat,
+               const TeamId &team) {
+        // §12.1: can_shoot enforces Column/Square fire limits
+        if (!tgt.can_shoot)
           return;
-        // Out of ammo
         if (ms.ammo_count == 0)
           return;
-
-        constexpr float MAX_MUSKET_RANGE = 100.0f; // meters
-        constexpr float BASE_ACCURACY = 0.35f;     // ~35% at point blank
-        constexpr float RELOAD_TIME = 8.0f;        // seconds per shot
-        constexpr float HUMIDITY_PENALTY = 0.05f;  // 5% misfire (clear day)
-
-        // Trap 8+9 Fix: Use macro battalion centroid for O(B) targeting
-        // instead of O(N) full-entity scan with leaked thread_local query.
-        float best_dist_sq = MAX_MUSKET_RANGE * MAX_MUSKET_RANGE;
-        flecs::entity best_target = flecs::entity::null();
-
-        // Step 1: Find nearest enemy BATTALION centroid (O(256))
-        int best_bat_id = -1;
-        float best_macro_dist = 1e18f;
-        for (int i = 0; i < MAX_BATTALIONS; i++) {
-          if (g_macro_battalions[i].alive_count == 0)
-            continue;
-          if (g_macro_battalions[i].team_id == team.team)
-            continue;
-          float bdx = g_macro_battalions[i].cx - pos.x;
-          float bdz = g_macro_battalions[i].cz - pos.z;
-          float bd2 = bdx * bdx + bdz * bdz;
-          if (bd2 < best_macro_dist) {
-            best_macro_dist = bd2;
-            best_bat_id = i;
-          }
-        }
-
-        // Step 2: If nearest battalion is way out of range, skip
-        if (best_bat_id == -1 ||
-            best_macro_dist > (MAX_MUSKET_RANGE * MAX_MUSKET_RANGE * 4.0f))
+        // Soldiers continue reloading even while holding fire!
+        if (ms.reload_timer > 0.0f)
           return;
 
-        // Step 3: Find nearest individual in that battalion via system query
-        // (ecs.system queries are safe cross-TU, no leak)
+        constexpr float MAX_MUSKET_RANGE = 100.0f;
+        constexpr float BASE_ACCURACY = 0.35f;
+        constexpr float RELOAD_TIME = 8.0f;
+        constexpr float HUMIDITY_PENALTY = 0.05f;
+
+        uint32_t my_bat_id = bat.id % MAX_BATTALIONS;
+        auto &mb = g_macro_battalions[my_bat_id];
+
+        // ─── §12.7: DOCTRINE GATES ─────────────────────────────
+        if (mb.fire_discipline == DISCIPLINE_HOLD)
+          return;
+
+        if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+          if (tgt.rank_index != mb.active_firing_rank)
+            return;
+        }
+
+        // ─── §12.7: STATELESS AIM JITTER (KRRR-CRACK!) ────────
+        float my_jitter = (float)(e.id() % 100) / 200.0f; // 0.0–0.5s
+
+        if (mb.fire_discipline == DISCIPLINE_MASS_VOLLEY) {
+          float elapsed = 0.5f - mb.volley_timer;
+          if (elapsed < my_jitter)
+            return;
+        } else if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+          float elapsed = 3.0f - mb.volley_timer;
+          if (elapsed < my_jitter)
+            return;
+        }
+
+        // ─── Trap 26: O(1) MACRO TARGET LOOKUP ─────────────────
+        int best_bat_id = mb.target_bat_id;
+        if (best_bat_id == -1)
+          return; // All targets blocked or dead
+
+        auto &enemy_bat = g_macro_battalions[best_bat_id];
+        float bdx = enemy_bat.cx - pos.x;
+        float bdz = enemy_bat.cz - pos.z;
+        float bd2 = bdx * bdx + bdz * bdz;
+        if (bd2 > (MAX_MUSKET_RANGE * MAX_MUSKET_RANGE * 4.0f))
+          return; // Way out of range
+
+        // ─── §12.8: MICRO TARGET + FIRING ARC ──────────────────
+        float best_dist_sq = MAX_MUSKET_RANGE * MAX_MUSKET_RANGE;
+        flecs::entity best_target = flecs::entity::null();
+        float final_shot_dot = 1.0f;
+
         flecs::world w = e.world();
         w.each([&](flecs::entity te, const Position &tp, const TeamId &tt,
                    const BattalionId &tb) {
-          if (!te.has<IsAlive>())
-            return;
-          if (tt.team == team.team)
+          if (!te.has<IsAlive>() || tt.team == team.team)
             return;
           if ((int)(tb.id % MAX_BATTALIONS) != best_bat_id)
             return;
+
           float tdx = tp.x - pos.x;
           float tdz = tp.z - pos.z;
           float td2 = tdx * tdx + tdz * tdz;
-          if (td2 < best_dist_sq) {
-            best_dist_sq = td2;
-            best_target = te;
-          }
+          if (td2 >= best_dist_sq)
+            return;
+
+          float dist = std::sqrt(td2);
+          if (dist < 0.01f)
+            return;
+          float nx = tdx / dist;
+          float nz = tdz / dist;
+
+          // §12.8: Dot product firing arc — chest facing vs target direction
+          float dot = nx * tgt.face_dir_x + nz * tgt.face_dir_z;
+          if (dot < 0.5f)
+            return; // >60° off-axis — physically can't twist
+
+          best_dist_sq = td2;
+          best_target = te;
+          final_shot_dot = dot;
         });
 
         if (!best_target.is_valid() || !best_target.is_alive())
           return;
 
-        // M7 Phase C: Officer blind fire — dead officer = 40m range, 0.3x
-        // accuracy
-        uint32_t my_bat_id = 0;
-        if (e.has<BattalionId>()) {
-          my_bat_id = e.get<BattalionId>().id % MAX_BATTALIONS;
-        }
-        bool officer_alive = g_macro_battalions[my_bat_id].officer_alive;
+        // ─── HIT CHANCE + ARC PENALTY ───────────────────────────
+        bool officer_alive = mb.officer_alive;
         float current_max_range = officer_alive ? MAX_MUSKET_RANGE : 40.0f;
 
         float dist = std::sqrt(best_dist_sq);
@@ -221,17 +243,17 @@ void register_combat_systems(flecs::world &ecs) {
 
         float hit_chance = BASE_ACCURACY * (1.0f - (dist / current_max_range));
         hit_chance *= (1.0f - HUMIDITY_PENALTY);
+        hit_chance *=
+            final_shot_dot; // §12.8: Accuracy penalty for angled shots
         if (!officer_alive)
-          hit_chance *= 0.3f; // Blind fire into smoke
+          hit_chance *= 0.3f;
 
-        // Clamp to [0, 1]
         if (hit_chance < 0.0f)
           hit_chance = 0.0f;
         if (hit_chance > 1.0f)
           hit_chance = 1.0f;
 
-        // Simple hash-based random from entity ID + world time
-        // (deterministic, no <random> header needed)
+        // Deterministic hash-based random
         uint64_t seed =
             e.id() ^ (uint64_t)(w.get_info()->world_time_total * 100000.0);
         seed ^= seed >> 33;
@@ -239,12 +261,11 @@ void register_combat_systems(flecs::world &ecs) {
         seed ^= seed >> 33;
         float roll = (float)(seed & 0xFFFF) / 65535.0f;
 
-        // Fire! Reset reload regardless of hit/miss
+        // Fire!
         ms.reload_timer = RELOAD_TIME;
         ms.ammo_count--;
 
         if (roll <= hit_chance) {
-          // Kill the target — remove IsAlive tag
           best_target.remove<IsAlive>();
         }
       });

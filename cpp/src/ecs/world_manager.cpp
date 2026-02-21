@@ -51,7 +51,7 @@ static void compute_battalion_centroids(flecs::world &ecs) {
       g_macro_battalions[id].officer_alive = true;
   });
 
-  // 3. Finalize centroids + M7 pipelines
+  // 3. Finalize centroids + M7 pipelines + M7.5 targeting + fire discipline
   for (int i = 0; i < MAX_BATTALIONS; i++) {
     auto &mb = g_macro_battalions[i];
 
@@ -70,6 +70,86 @@ static void compute_battalion_centroids(flecs::world &ecs) {
       } else {
         mb.flag_cohesion = std::max(0.2f, mb.flag_cohesion - dt * 0.05f);
       }
+
+      // M7.5 §12.7: Dead officer = loss of fire discipline!
+      if (!mb.officer_alive && mb.fire_discipline != DISCIPLINE_AT_WILL) {
+        mb.fire_discipline = DISCIPLINE_AT_WILL;
+      }
+
+      // M7.5 §12.7: Officer's Metronome — tick the fire discipline timer
+      if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+        mb.volley_timer -= dt;
+        if (mb.volley_timer <= 0.0f) {
+          mb.active_firing_rank = (mb.active_firing_rank + 1) % 3;
+          mb.volley_timer = 3.0f; // 3s between rank volleys
+        }
+      } else if (mb.fire_discipline == DISCIPLINE_MASS_VOLLEY) {
+        mb.volley_timer -= dt;
+        if (mb.volley_timer <= 0.0f) {
+          mb.fire_discipline = DISCIPLINE_HOLD; // Window closed
+        }
+      }
+
+      // ── M7.5 §12.8 Trap 26: Hoisted Macro Targeting ──
+      // O(B²) total: find nearest unblocked enemy battalion for each battalion
+      mb.target_bat_id = -1;
+      float best_dist = 1e18f;
+
+      for (int j = 0; j < MAX_BATTALIONS; j++) {
+        auto &enemy = g_macro_battalions[j];
+        if (enemy.alive_count == 0 || enemy.team_id == mb.team_id)
+          continue;
+
+        float edx = enemy.cx - mb.cx;
+        float edz = enemy.cz - mb.cz;
+        float ed2 = edx * edx + edz * edz;
+        if (ed2 >= best_dist)
+          continue;
+
+        // Check if a FRIENDLY battalion's OBB blocks this shot path
+        bool blocked = false;
+        for (int fb = 0; fb < MAX_BATTALIONS; fb++) {
+          if (fb == i || fb == j)
+            continue;
+          auto &f = g_macro_battalions[fb];
+          if (f.alive_count == 0 || f.team_id != mb.team_id)
+            continue;
+
+          // OBB diagonals
+          float rx = -f.dir_z * f.ext_w, rz = f.dir_x * f.ext_w;
+          float fx = f.dir_x * f.ext_d, fz = f.dir_z * f.ext_d;
+          // Diagonal 1: (cx-rx-fx) to (cx+rx+fx)
+          float d1ax = f.cx - rx - fx, d1az = f.cz - rz - fz;
+          float d1bx = f.cx + rx + fx, d1bz = f.cz + rz + fz;
+          // Diagonal 2: (cx+rx-fx) to (cx-rx+fx)
+          float d2ax = f.cx + rx - fx, d2az = f.cz + rz - fz;
+          float d2bx = f.cx - rx + fx, d2bz = f.cz - rz + fz;
+
+          // CCW segment intersection test (zero sqrt)
+          auto ccw = [](float ax, float az, float bx, float bz, float cx,
+                        float cz) {
+            return (cz - az) * (bx - ax) > (bz - az) * (cx - ax);
+          };
+          auto seg_hit = [&](float ax, float az, float bx, float bz, float cx,
+                             float cz, float dx, float dz) {
+            return ccw(ax, az, cx, cz, dx, dz) != ccw(bx, bz, cx, cz, dx, dz) &&
+                   ccw(ax, az, bx, bz, cx, cz) != ccw(ax, az, bx, bz, dx, dz);
+          };
+
+          if (seg_hit(mb.cx, mb.cz, enemy.cx, enemy.cz, d1ax, d1az, d1bx,
+                      d1bz) ||
+              seg_hit(mb.cx, mb.cz, enemy.cx, enemy.cz, d2ax, d2az, d2bx,
+                      d2bz)) {
+            blocked = true;
+            break;
+          }
+        }
+
+        if (!blocked && ed2 < best_dist) {
+          best_dist = ed2;
+          mb.target_bat_id = j;
+        }
+      }
     }
 
     // Phase D: Order Delay Pipeline
@@ -81,24 +161,35 @@ static void compute_battalion_centroids(flecs::world &ecs) {
         float tx = order.target_x;
         float tz = order.target_z;
 
-        // Dispatch to ECS entities in this battalion
-        ecs.each([&](flecs::entity e, const BattalionId &b) {
-          if ((int)(b.id % MAX_BATTALIONS) != i || !e.has<IsAlive>())
-            return;
-          if (e.has<CavalryState>()) {
-            const auto &cs = e.get<CavalryState>();
-            if (cs.state_flags != 0)
+        if (otype == ORDER_DISCIPLINE) {
+          // M7.5 §12.7: Fire discipline change
+          mb.fire_discipline = (FireDiscipline)order.requested_discipline;
+          if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+            mb.active_firing_rank = 0;
+            mb.volley_timer = 3.0f;
+          } else if (mb.fire_discipline == DISCIPLINE_MASS_VOLLEY) {
+            mb.volley_timer = 0.5f; // 0.5s execution window
+          }
+        } else {
+          // Dispatch to ECS entities in this battalion
+          ecs.each([&](flecs::entity e, const BattalionId &b) {
+            if ((int)(b.id % MAX_BATTALIONS) != i || !e.has<IsAlive>())
               return;
-          }
+            if (e.has<CavalryState>()) {
+              const auto &cs = e.get<CavalryState>();
+              if (cs.state_flags != 0)
+                return;
+            }
 
-          if (otype == ORDER_MARCH && e.has<SoldierFormationTarget>()) {
-            const auto &st = e.get<SoldierFormationTarget>();
-            e.set<MovementOrder>(
-                {(float)(tx + st.target_x), (float)(tz + st.target_z), false});
-          } else if (otype == ORDER_FIRE) {
-            e.set<FireOrder>({tx, tz});
-          }
-        });
+            if (otype == ORDER_MARCH && e.has<SoldierFormationTarget>()) {
+              const auto &st = e.get<SoldierFormationTarget>();
+              e.set<MovementOrder>({(float)(tx + st.target_x),
+                                    (float)(tz + st.target_z), false});
+            } else if (otype == ORDER_FIRE) {
+              e.set<FireOrder>({tx, tz});
+            }
+          });
+        }
         order.type = ORDER_NONE;
       }
     }
