@@ -528,3 +528,123 @@ ecs.system<RegionState, RegionalInventory>("MacroEconomyTick")
 ```
 
 **Edge Cases**: `is_active_micro` toggled by camera zoom level. When zooming back in, the last-known macro state seeds the micro-simulation agents.
+
+---
+
+## §12. Tactical Geometry Engine (M7.5)
+
+**Concept**: Dynamic formation slot calculation for Line, Column, and Square. All 3 formations share the same Spring-Damper physics; only the target coordinates change. The geometry engine is called once per formation change, not per-frame.
+
+### §12.1 Formation Slot Mathematics
+
+```cpp
+// Constants (Historical Napoleonic spacing)
+constexpr float SP_X = 0.8f;  // 0.8m shoulder-to-shoulder
+constexpr float SP_Z = 1.2f;  // 1.2m depth between ranks
+
+// Given N living soldiers:
+
+// ── LINE (3 ranks deep) ──────────────────────
+int ranks = 3;
+int cols = (int)std::ceil((float)N / ranks);
+// Soldier i:
+int row = i % ranks;   // 0=Front, 1=Middle, 2=Rear
+int col = i / ranks;   // 0..166
+float ox = (col - cols / 2.0f) * SP_X;  // Centered on battalion origin
+float oz = (row - 1.0f) * SP_Z;         // row=0 is slightly forward
+// Width ≈ cols × 0.8m ≈ 133m for 500 men
+// Depth = 2 × 1.2m = 2.4m
+
+// ── COLUMN (16-wide attack column) ───────────
+int front = 16;
+int r = i / front;
+int c = i % front;
+int total_ranks = (int)std::ceil((float)N / front);
+float ox = (c - front / 2.0f) * SP_X;
+float oz = (r - total_ranks / 2.0f) * SP_Z;
+// Width ≈ 12.8m, Depth ≈ 37m for 500 men
+// can_shoot = (r < 2)  → Only front 2 ranks fire (~6% firepower)
+
+// ── HOLLOW SQUARE (4 faces × 3 ranks) ────────
+int side = i % 4;       // 0=Front, 1=Right, 2=Rear, 3=Left
+int pos = i / 4;
+int face_men = N / 4;
+int cols_per_side = (int)std::ceil((float)face_men / 3);
+int r = pos % 3;
+int c = pos / 3;
+float radius = (cols_per_side * SP_X) / 2.0f;
+float lx = (c - cols_per_side / 2.0f) * SP_X;
+float lz = radius - r * SP_Z;  // Outer rank faces out
+// Rotate 90° per face:
+// side 0: ox= lx, oz=-lz    side 1: ox= lz, oz= lx
+// side 2: ox=-lx, oz= lz    side 3: ox=-lz, oz=-lx
+// can_shoot = (r < 2)  → Outer 2 ranks fire outward
+```
+
+### §12.2 Formation Properties
+
+| Shape | Width | Depth | Firepower | Defense | Speed | Use Case |
+|-------|-------|-------|-----------|---------|-------|----------|
+| Line | ~133m | 2.4m | 100% | 0.2 | 3.0 m/s | Maximum volley DPS |
+| Column | ~13m | 37m | ~6% | 0.5 | 5.0 m/s | Fast movement, bayonet assault |
+| Square | ~33m | ~33m | ~50% | 0.9 | 0.5 m/s | Anti-cavalry fortress |
+
+### §12.3 Panic Grid Density Constants
+
+```
+// A 4×4m CA cell in a 3-deep line contains max 15 men (5 cols × 3 ranks)
+// Old constants (20×25 block, ~30 men/cell): instantly spiked to 1.0
+// New constants calibrated for 15 men/cell:
+
+Death Injection:    +0.20  (was +0.40)  → 3 deaths = 0.60 (just under route)
+Contagion:          +0.10 * dt  (was +0.25/tick)
+Route Threshold:     0.65  (was 0.60)
+Recovery Threshold:  0.25  (was 0.30)
+```
+
+### §12.4 Distributed Drummer Aura (File Closer Abstraction)
+
+```
+// Problem: Single drummer at center → -0.2/sec affects one 4×4m cell.
+//          A 133m-wide line has ~33 cells. Flanks get zero morale support.
+//
+// Solution: If drummer is alive, EVERY soldier cleanses their own cell.
+//           Per-soldier cleanse: -0.015/sec
+//           15 men/cell × -0.015 = -0.225/sec cell cleanse (≈ old -0.2)
+//
+// Emergent behavior:
+//   - Aura morphs with formation shape (line, column, square)
+//   - Casualties permanently weaken the cell's cleanse rate
+//   - 6 deaths in a cell → 9 men → cleanse drops to -0.135/sec
+//   - Flanks become mathematically brittle under pressure
+```
+
+### §12.5 Lateral Offset Targeting Penalty
+
+```cpp
+// Problem: 167 men all target the single nearest enemy → center overkill
+// Solution: Cross-product penalty forces flanks to shoot straight ahead
+
+float fwd_x = enemy_cx - my_cx;  // Macro forward vector
+float fwd_z = enemy_cz - my_cz;
+float fwd_len = sqrt(fwd_x*fwd_x + fwd_z*fwd_z);
+fwd_x /= fwd_len; fwd_z /= fwd_len;
+
+// Per-target scoring:
+float lateral_offset = abs(tdx * fwd_z - tdz * fwd_x);  // 2D cross product
+float score = true_dist_sq + (lateral_offset * lateral_offset * 5.0f);
+// Use score for target SELECTION, but true_dist for hit_chance calculation!
+```
+
+### §12.6 Rank Fire (Rolling Volleys)
+
+```
+// Stagger initial reload_timer by rank:
+//   Row 0 (Front):  reload_timer = 0.0s  → fires immediately
+//   Row 1 (Middle): reload_timer = 2.0s  → fires at t=2s
+//   Row 2 (Rear):   reload_timer = 4.0s  → fires at t=4s
+//
+// Reload time = 8.0s per shot
+// Result: continuous rolling fire every ~2.7s instead of one boom + 8s silence
+```
+

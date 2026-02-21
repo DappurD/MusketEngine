@@ -102,6 +102,7 @@
 | `cpp/src/ecs/musket_systems.cpp` | SpringDamperPhysics flag_cohesion, drummer speed buff, officer blind fire, DrummerPanicCleanseSystem |
 
 ## What Is NOT Built Yet
+- **M7.5: Dynamic Tactical Formations** — 3-rank spawner, Line/Column/Square geometry engine, panic retuning, distributed drummer aura, lateral targeting penalty, `can_shoot` restrictions, rolling rank fire (NEXT)
 - M8: LLM General (Battle Commander + State Compressor)
 - M8-M14: LLM General, Economy
 - **M15-M18: Urbanism & Siege** — full voxel engine
