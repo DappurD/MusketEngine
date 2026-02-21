@@ -2,7 +2,14 @@
 #include "musket_components.h"
 #include <cmath>
 
+// DEFINITION: allocates the MacroBattalion centroid cache (ODR-safe)
+// Declared extern in musket_components.h, defined here exactly once.
+MacroBattalion g_macro_battalions[MAX_BATTALIONS];
+
 namespace musket {
+
+// Persistent query handle — built ONCE in register_cavalry_systems()
+static flecs::query<const Position, const BattalionId> q_centroids;
 
 void register_movement_systems(flecs::world &ecs) {
 
@@ -642,14 +649,46 @@ void register_artillery_systems(flecs::world &ecs) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// M6: CAVALRY SYSTEMS (Deep Think #3: Steering vs Ballistics)
+// M6: CAVALRY SYSTEMS (Deep Think #3 + #4)
 //
-// "You cannot use an Attractor to simulate a Projectile."
-// Charging cavalry are pure kinematic missiles with a locked
-// direction vector. The spring-damper is completely bypassed.
+// Deep Think #3: Ballistic kinematics (locked direction vector)
+// Deep Think #4: Battalion centroids, parallel vector rule
 // ═══════════════════════════════════════════════════════════════
 
+// ── Standalone Function: Compute Battalion Centroids ──────────
+// Called from _process() BEFORE ecs.progress(). Uses pre-registered
+// query (no ad-hoc allocation — Deep Think #4 key insight).
+void compute_battalion_centroids() {
+  // 1. Zero the cache
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    g_macro_battalions[i].cx = 0.0f;
+    g_macro_battalions[i].cz = 0.0f;
+    g_macro_battalions[i].alive_count = 0;
+  }
+
+  // 2. Accumulate using the CACHED persistent query
+  q_centroids.each([](const Position &p, const BattalionId &b) {
+    uint32_t id = b.id % MAX_BATTALIONS;
+    g_macro_battalions[id].cx += p.x;
+    g_macro_battalions[id].cz += p.z;
+    g_macro_battalions[id].alive_count++;
+  });
+
+  // 3. Finalize (divide by count)
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    if (g_macro_battalions[i].alive_count > 0) {
+      g_macro_battalions[i].cx /= (float)g_macro_battalions[i].alive_count;
+      g_macro_battalions[i].cz /= (float)g_macro_battalions[i].alive_count;
+    }
+  }
+}
+
 void register_cavalry_systems(flecs::world &ecs) {
+
+  // Build the centroid query EXACTLY ONCE (Deep Think #4)
+  q_centroids = ecs.query_builder<const Position, const BattalionId>()
+                    .with<IsAlive>()
+                    .build();
 
   // ── System: Cavalry Ballistic Kinematics (60Hz) ─────────────
   // Handles ALL cavalry movement in states 1 (Charging) and

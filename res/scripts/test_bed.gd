@@ -28,7 +28,9 @@ var last_n := false
 var last_l := false
 var last_c := false
 var last_v := false
+var last_s := false
 var blue_limbered := false
+var scale_spawned := false
 
 const BLUE_COUNT := 200
 const RED_COUNT := 200
@@ -94,6 +96,7 @@ func _ready() -> void:
 	print("  [L] Toggle limber    [C] Cavalry charge!")
 	print("  [V] Toggle legacy/battalion rendering")
 	print("  [1] March z+50  [2] March z-50  [3] Halt")
+	print("  [S] SCALE TEST — spawn 5,000+ units")
 	print("═══════════════════════════════════════════════")
 
 
@@ -154,6 +157,13 @@ func _process(delta: float) -> void:
 		server.order_charge(0, RED_CENTER.x, RED_CENTER.z)
 		print("[CAVALRY] CHARGE!!! France cavalry attacking!")
 	last_c = c_now
+
+	# ── Input: SCALE TEST ──
+	var s_now := Input.is_physical_key_pressed(KEY_S)
+	if s_now and not last_s and not scale_spawned:
+		_spawn_scale_test()
+		scale_spawned = true
+	last_s = s_now
 
 	# ── Input: toggle rendering mode ──
 	var v_now := Input.is_physical_key_pressed(KEY_V)
@@ -249,8 +259,49 @@ func _process(delta: float) -> void:
 		hud_timer = 0.0
 		var blue_alive = server.get_alive_count(0)
 		var red_alive = server.get_alive_count(1)
+		var total_alive = blue_alive + red_alive
 		var fps := Engine.get_frames_per_second()
+		var frame_ms := delta * 1000.0
 		var mode := "LEGACY" if use_legacy else "BATTALION"
-		print("[HUD] FPS:%d | %s | France:%d/%d | Russia:%d/%d | Proj:%d" % [
-			fps, mode, blue_alive, BLUE_COUNT + CAVALRY_COUNT,
-			red_alive, RED_COUNT, proj_count])
+		print("[HUD] FPS:%d (%.1fms) | %s | Blue:%d Red:%d | Total:%d | Proj:%d" % [
+			fps, frame_ms, mode, blue_alive, red_alive, total_alive, proj_count])
+
+
+## ── Scale Test: spawn 5,000+ units ──────────────────────
+func _spawn_scale_test() -> void:
+	print("═══════════════════════════════════════════════")
+	print("  SCALE TEST — spawning 5,000+ entities")
+	print("═══════════════════════════════════════════════")
+
+	var t0 := Time.get_ticks_msec()
+
+	# 10 battalions per side, 500 soldiers each = 5,000 per team
+	var bat_size := 500
+	var bats_per_team := 10
+	var spacing := 30.0  # meters between battalion centers
+
+	for i in range(bats_per_team):
+		var row := i / 5
+		var col := i % 5
+		var bx := (col - 2) * spacing
+		var bz_blue := -50.0 - row * spacing
+		var bz_red := 50.0 + row * spacing
+
+		server.spawn_test_battalion(bat_size, bx, bz_blue, 0)
+		server.spawn_test_battalion(bat_size, bx, bz_red, 1)
+
+	# Extra cavalry per side
+	server.spawn_test_cavalry(100, -60.0, -40.0, 0)
+	server.spawn_test_cavalry(100, 60.0, 40.0, 1)
+
+	# Extra batteries
+	server.spawn_test_battery(6, -50.0, -60.0, 0)
+	server.spawn_test_battery(6, 50.0, 60.0, 1)
+
+	var elapsed := Time.get_ticks_msec() - t0
+	var total := bats_per_team * bat_size * 2 + 200 + 12 + 420  # scale + existing
+	print("═══════════════════════════════════════════════")
+	print("  SCALE TEST COMPLETE: ~%d entities in %dms" % [total, elapsed])
+	print("  Watch FPS in HUD to verify performance")
+	print("═══════════════════════════════════════════════")
+

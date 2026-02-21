@@ -100,7 +100,19 @@ struct FormationDefense {
   float defense; // 0.2=Line, 0.5=Column, 0.9=Square
 }; // 4 bytes
 
-struct ChargeOrder {}; // Tag — triggers charge state
+// ─── Cavalry: MacroBattalion Centroid Cache (Deep Think #4) ──
+// Pre-computed per-frame. O(1) lookups for charge targeting.
+struct MacroBattalion {
+  float cx = 0.0f;
+  float cz = 0.0f;
+  int alive_count = 0;
+}; // 12 bytes
+
+// EXTERN: declared here, defined ONCE in musket_systems.cpp
+constexpr int MAX_BATTALIONS = 256;
+extern MacroBattalion g_macro_battalions[MAX_BATTALIONS];
+
+struct ChargeOrder {}; // Tag — triggers charge state (Phase C: promote to POD)
 struct Disordered {};  // Tag — post-charge vulnerability
 
 // ─── Rendering: Battalion Chunking ────────────────────────
