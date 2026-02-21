@@ -121,6 +121,10 @@
 - **Melee Combat**: The engine has no melee system. Bayonet charges, cavalry saber engagements, and hand-to-hand routing need design. Key questions: Does melee use the same spring-damper slots? How do locked formations (Square) interact with charging infantry? What happens to `can_shoot` during melee? Does the panic grid need a "melee shock" injection separate from death fear?
 - **Small Skirmish Scaling**: The current architecture is optimized for 200-500 man battalions with macro-level targeting (O(B²) on battalion centroids). Does this architecture degrade gracefully for 10-20 man skirmish parties, hunting parties, or scouting detachments? The `MacroBattalion` struct assumes all units operate as formations — solo or small-group entities may need a different targeting path.
 
+### 🟡 Performance Findings (from Test Suite, 2026-02-21)
+- **O(N²) Micro-Targeting Bottleneck**: `VolleyFireSystem` does `w.each()` per soldier to find the closest enemy in the target battalion. At 10K entities this takes **4.4 seconds per tick** (100M iterations). At 1K (realistic battle) it's 46ms. **Spatial partitioning** (grid hash or BVH) is needed before scaling beyond ~2K active shooters. This should be addressed before or during M8.
+- **Traps 30-32 Verified Safe**: NaN bomb (Trap 30) — spring-damper uses raw `dx*stiffness`, no normalization at zero. Grid OOB (Trap 31) — `world_to_idx` already clamps to `[0, CELLS-1]`. Stale targeting (Trap 32) — `target_bat_id` resets to `-1` every frame in centroid pass.
+
 ## Implementation Law
 
 Every system implementation MUST follow this process. No exceptions.
