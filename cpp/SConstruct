@@ -2,37 +2,67 @@
 """
 SConstruct — The Musket Engine GDExtension build.
 Links godot-cpp and Flecs into musket_engine.dll.
+
+Targets:
+  scons                      -> musket_engine.dll (Godot GDExtension)
+  scons test=yes             -> musket_tests.exe  (Headless doctest binary)
 """
 
 import os
 import sys
 
-# ── godot-cpp ──────────────────────────────────────────────
-env = SConscript("godot-cpp/SConstruct")
+# ══════════════════════════════════════════════════════════════
+# TARGET 1: Standalone Test Suite (no Godot dependency)
+# ══════════════════════════════════════════════════════════════
+if ARGUMENTS.get('test', 'no') == 'yes':
+    # We need to find MSVC manually since we're not using godot-cpp's SConstruct
+    test_env = Environment(ENV=os.environ, tools=['msvc', 'mslink'])
+    test_env.Append(CPPPATH=["src/", "src/ecs/", "flecs/", "tests/"])
+    test_env.Append(CPPDEFINES=["flecs_STATIC"])
+    test_env.Append(CXXFLAGS=["/std:c++17", "/O2", "/EHsc", "/W3"])
 
-# ── Flecs (header-only mode) ──────────────────────────────
-env.Append(CPPPATH=["flecs/"])
-env.Append(CPPDEFINES=["flecs_STATIC"])
+    test_sources = [
+        "tests/test_master.cpp",
+        "flecs/flecs.c",
+    ]
 
-# ── Source files ──────────────────────────────────────────
-env.Append(CPPPATH=["src/", "src/ecs/"])
+    test_exe = test_env.Program(
+        target="../bin/musket_tests",
+        source=test_sources,
+    )
+    Default(test_exe)
 
-# UNITY BUILD: Compile ONLY the entry point and the master include.
-# Do NOT use Glob("src/ecs/*.cpp") — it would double-compile files
-# already #included by musket_master.cpp, causing LNK2005 errors.
-# See src/ecs/musket_master.cpp header comment for the rationale.
-sources = [
-    "src/register_types.cpp",   # GDExtension init (must stay separate)
-    "src/ecs/musket_master.cpp", # Unity Build (all ECS game logic)
-]
+# ══════════════════════════════════════════════════════════════
+# TARGET 2: Godot GDExtension DLL (production)
+# ══════════════════════════════════════════════════════════════
+else:
+    # ── godot-cpp ──────────────────────────────────────────────
+    env = SConscript("godot-cpp/SConstruct")
 
-# Flecs single-header implementation (pure C, stays separate)
-sources += Glob("flecs/*.c")
+    # ── Flecs (header-only mode) ──────────────────────────────
+    env.Append(CPPPATH=["flecs/"])
+    env.Append(CPPDEFINES=["flecs_STATIC"])
 
-# ── Output library ────────────────────────────────────────
-library = env.SharedLibrary(
-    target="../bin/musket_engine{}".format(env["SHLIBSUFFIX"]),
-    source=sources,
-)
+    # ── Source files ──────────────────────────────────────────
+    env.Append(CPPPATH=["src/", "src/ecs/"])
 
-Default(library)
+    # UNITY BUILD: Compile ONLY the entry point and the master include.
+    # Do NOT use Glob("src/ecs/*.cpp") — it would double-compile files
+    # already #included by musket_master.cpp, causing LNK2005 errors.
+    # See src/ecs/musket_master.cpp header comment for the rationale.
+    sources = [
+        "src/register_types.cpp",   # GDExtension init (must stay separate)
+        "src/ecs/musket_master.cpp", # Unity Build (all ECS game logic)
+    ]
+
+    # Flecs single-header implementation (pure C, stays separate)
+    sources += Glob("flecs/*.c")
+
+    # ── Output library ────────────────────────────────────────
+    library = env.SharedLibrary(
+        target="../bin/musket_engine{}".format(env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+
+    Default(library)
+

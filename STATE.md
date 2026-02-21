@@ -143,6 +143,7 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 | 2026-02-20 | **Per-team panic grid** | `PanicGrid.read_buf[2][CELLS]` — deaths on team X only panic team X. Prevents attackers from catching defender's panic. |
 | 2026-02-20 | **Lazy battalion init** | Static `PackedFloat32Array` arrays crash DLL before Godot runtime. Use `new[]` on first access. |
 | 2026-02-20 | **Golden TU rule** | All `ecs.each<>()` calls and `g_macro_battalions` MUST live in `world_manager.cpp`. MSVC generates different Flecs component IDs per Translation Unit. Only `ecs.system<>()` is safe cross-TU (does deep world lookup). |
+| 2026-02-21 | **Flecs v4.1.4 API cheatsheet** | `e.get<T>()` returns `const T` (value, NOT pointer). Use `e.ensure<T>()` to get mutable `T&`. Use `e.set<T>({...})` for assignment. Use `e.has<T>()` for tag checks. Use `e.add<T>()` / `e.remove<T>()` for tags. Never use `->` on `get<T>()`. |
 | 2026-02-20 | **No static ECS memory** | Never store `static flecs::query<>`. DLL survives Godot Play/Stop — statics point at dead worlds and return 0 entities. |
 | 2026-02-20 | **Battalion-level targeting via MacroBattalion centroid cache** | `g_macro_battalions[256]` is populated every frame in `_process()` using `ecs.each<>()` in the golden TU. Cavalry reads centroids to find nearest enemy battalion. |
 | 2026-02-20 | **No thread_local queries** | Trap 8: `thread_local new flecs::query` leaks memory and segfaults on Play/Stop. Use `w.each()` or macro battalion centroids instead. |
