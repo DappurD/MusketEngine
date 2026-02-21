@@ -130,6 +130,7 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 | 2026-02-20 | **O(B) targeting via centroids** | Trap 9: Volley fire and routing use macro battalion centroid lookup O(256) instead of O(N) full-entity scan. |
 | 2026-02-20 | **Exponential decay damping** | Trap 19: `v *= exp(-damping * dt)` is unconditionally stable. Replaces semi-implicit Euler `v += (k*x - d*v) * dt` which explodes when `damping*dt > 1.0`. |
 | 2026-02-20 | **Chrono-drift fix** | Trap 16: Panic grid `tick_accum -= 0.2f` preserves fractional remainder instead of resetting to 0. |
+| 2026-02-20 | **Unity Build** | `musket_master.cpp` `#include`s all ECS `.cpp` files. Single TU permanently eliminates MSVC template static ID mismatch. `w.each<>()` is now safe everywhere. SCons compiles only `register_types.cpp` + `musket_master.cpp`. |
 
 ## Known Issues
 - `flecs_STATIC` macro redefinition warning (harmless)

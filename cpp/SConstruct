@@ -15,16 +15,18 @@ env.Append(CPPPATH=["flecs/"])
 env.Append(CPPDEFINES=["flecs_STATIC"])
 
 # ── Source files ──────────────────────────────────────────
-env.Append(CPPPATH=["src/"])
+env.Append(CPPPATH=["src/", "src/ecs/"])
 
-sources = Glob("src/*.cpp")
-sources += Glob("src/combat/*.cpp")
-sources += Glob("src/economy/*.cpp")
-sources += Glob("src/generation/*.cpp")
-sources += Glob("src/ai/*.cpp")
-sources += Glob("src/ecs/*.cpp")
+# UNITY BUILD: Compile ONLY the entry point and the master include.
+# Do NOT use Glob("src/ecs/*.cpp") — it would double-compile files
+# already #included by musket_master.cpp, causing LNK2005 errors.
+# See src/ecs/musket_master.cpp header comment for the rationale.
+sources = [
+    "src/register_types.cpp",   # GDExtension init (must stay separate)
+    "src/ecs/musket_master.cpp", # Unity Build (all ECS game logic)
+]
 
-# Flecs single-header implementation
+# Flecs single-header implementation (pure C, stays separate)
 sources += Glob("flecs/*.c")
 
 # ── Output library ────────────────────────────────────────
