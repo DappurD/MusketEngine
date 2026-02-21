@@ -123,14 +123,18 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 | 2026-02-20 | **Ballistic cavalry bypasses spring-damper** | Deep Think #3: "You cannot use an Attractor to simulate a Projectile." Charging cavalry use locked direction vector, cubic ramp, airgap from formation physics. |
 | 2026-02-20 | **Per-team panic grid** | `PanicGrid.read_buf[2][CELLS]` — deaths on team X only panic team X. Prevents attackers from catching defender's panic. |
 | 2026-02-20 | **Lazy battalion init** | Static `PackedFloat32Array` arrays crash DLL before Godot runtime. Use `new[]` on first access. |
+| 2026-02-20 | **Golden TU rule** | All `ecs.each<>()` calls and `g_macro_battalions` MUST live in `world_manager.cpp`. MSVC generates different Flecs component IDs per Translation Unit. Only `ecs.system<>()` is safe cross-TU (does deep world lookup). |
+| 2026-02-20 | **No static ECS memory** | Never store `static flecs::query<>`. DLL survives Godot Play/Stop — statics point at dead worlds and return 0 entities. |
+| 2026-02-20 | **Battalion-level targeting via MacroBattalion centroid cache** | `g_macro_battalions[256]` is populated every frame in `_process()` using `ecs.each<>()` in the golden TU. Cavalry reads centroids to find nearest enemy battalion. |
 
 ## Known Issues
 - `flecs_STATIC` macro redefinition warning (harmless)
 - godot-cpp using 4.5-stable (backwards compatible)
 - C++ exception handler warning from nlohmann/json (no `/EHsc`)
 - Static query in `rendering_bridge.cpp` is initialized on first call — safe for single-threaded Godot main thread
-- **Cavalry slightly OP** — momentum 2.0 may need tuning down. Each horse kills ~6 against Line. Adjust the `2.0f` multiplier in `CavalryBallistics` system or cost formula in `CavalryImpact`.
-- **Cavalry re-charge targets empty ground** — `order_charge` uses fixed coordinates. Second charge rides back through dead bodies. Needs nearest-living-enemy targeting or M7 command selection.
+- **Cavalry momentum at 1.2** — ~3-4 kills per horse vs Line. May need further tuning.
+- **Need fixed-dt accumulator** — Spring-damper physics will NaN at low framerates. Must decouple from `_process(delta)` before M7.
+- **Need Unity Build** — `musket_master.cpp` that `#include`s all `.cpp` files to permanently eliminate MSVC TU mismatch.
 
 ## C++ ↔ Godot Bridge
 - GDExtension: `musket_engine.gdextension`
@@ -141,7 +145,7 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 
 ## Immediate Next Step
 1. ~~M1-M6~~ ✅ DONE
-2. **Tune cavalry** — momentum multiplier and charge ramp constants
-3. **Team color shader** — reads `INSTANCE_CUSTOM.g` for team-based albedo
-4. **VAT ragdoll shader** — reads death data from `custom_data[12-15]`
+2. **Implement fixed-dt accumulator** — Decouple Flecs tick from Godot `_process(delta)`
+3. **Implement Unity Build** — Create `musket_master.cpp` to eliminate TU mismatch permanently
+4. **Team color shader** — reads `INSTANCE_CUSTOM.g` for team-based albedo
 5. Begin **M7: Command Network**
