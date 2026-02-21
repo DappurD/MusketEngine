@@ -1,11 +1,12 @@
 extends Node3D
 
 ## ────────────────────────────────────────────────────────────
-## TestBed — M6 Battalion Rendering + Cavalry
+## TestBed — M7.5 Dynamic Tactical Formations
 ##
 ## Two battalions + batteries + cavalry.
 ## Press V to toggle between legacy and battalion rendering.
 ## Press C for cavalry charge.
+## M7.5: 4-7 fire discipline, 8-0 formation shape.
 ## ────────────────────────────────────────────────────────────
 
 @onready var server = $MusketServer
@@ -90,13 +91,18 @@ func _ready() -> void:
 	add_child(proj_mm_instance)
 
 	print("═══════════════════════════════════════════════")
-	print("  M6 BATTALION RENDERING + CAVALRY TEST")
+	print("  M7.5 TACTICAL FORMATIONS TEST")
 	print("  [F] France muskets   [G] Russia muskets")
 	print("  [B] France artillery [N] Russia artillery")
 	print("  [L] Toggle limber    [C] Cavalry charge!")
 	print("  [V] Toggle legacy/battalion rendering")
 	print("  [1] March z+50  [2] March z-50  [3] Halt")
 	print("  [S] SCALE TEST — spawn 5,000+ units")
+	print("  ── M7.5: Fire Discipline (bat 0) ──")
+	print("  [4] HOLD   [5] AT WILL   [6] BY RANK")
+	print("  [7] MASS VOLLEY")
+	print("  ── M7.5: Formation Shape (bat 0) ──")
+	print("  [8] LINE   [9] COLUMN   [0] SQUARE")
 	print("═══════════════════════════════════════════════")
 
 
@@ -182,6 +188,31 @@ func _process(delta: float) -> void:
 		server.order_march(0.0, -50.0)
 	if Input.is_physical_key_pressed(KEY_3):
 		server.order_march(0.0, 0.0)
+
+	# ── M7.5: Fire Discipline (bat 0) ──
+	if Input.is_physical_key_pressed(KEY_4):
+		server.order_fire_discipline(0, 0)  # HOLD
+		print("[M7.5] Bat 0 → HOLD FIRE")
+	if Input.is_physical_key_pressed(KEY_5):
+		server.order_fire_discipline(0, 1)  # AT WILL
+		print("[M7.5] Bat 0 → AT WILL")
+	if Input.is_physical_key_pressed(KEY_6):
+		server.order_fire_discipline(0, 2)  # BY RANK
+		print("[M7.5] Bat 0 → FIRE BY RANK")
+	if Input.is_physical_key_pressed(KEY_7):
+		server.order_fire_discipline(0, 3)  # MASS VOLLEY
+		print("[M7.5] Bat 0 → MASS VOLLEY!")
+
+	# ── M7.5: Formation Shape (bat 0) ──
+	if Input.is_physical_key_pressed(KEY_8):
+		server.order_formation(0, 0)  # LINE
+		print("[M7.5] Bat 0 → LINE FORMATION")
+	if Input.is_physical_key_pressed(KEY_9):
+		server.order_formation(0, 1)  # COLUMN
+		print("[M7.5] Bat 0 → COLUMN FORMATION")
+	if Input.is_physical_key_pressed(KEY_0):
+		server.order_formation(0, 2)  # SQUARE
+		print("[M7.5] Bat 0 → SQUARE FORMATION")
 
 	# ═══════════════════════════════════════════════════════════
 	# RENDERING: Battalion path (new — O(B) where B=battalions)
