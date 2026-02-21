@@ -327,9 +327,10 @@ void register_panic_systems(flecs::world &ecs) {
         int idx = PanicGrid::world_to_idx(pos.x, pos.z);
         float panic = grid.read_buf[t][idx];
 
-        // GDD §5.3: route threshold = 0.6, recovery = 0.3
-        constexpr float ROUTE_THRESHOLD = 0.6f;
-        constexpr float RECOVERY_THRESHOLD = 0.3f;
+        // M7.5 §12.3: route threshold = 0.65, recovery = 0.25 (retuned for
+        // 3-rank density)
+        constexpr float ROUTE_THRESHOLD = 0.65f;
+        constexpr float RECOVERY_THRESHOLD = 0.25f;
         constexpr float BASE_STIFFNESS = 50.0f;
         constexpr float MIN_FACTOR = 0.2f;
 
@@ -405,7 +406,8 @@ void register_panic_systems(flecs::world &ecs) {
         PanicGrid &grid = w.ensure<PanicGrid>();
         int t = team.team % PanicGrid::TEAMS;
         int idx = PanicGrid::world_to_idx(pos.x, pos.z);
-        grid.read_buf[t][idx] += CONTAGION * dt * 5.0f;
+        grid.read_buf[t][idx] +=
+            0.10f * dt; // M7.5 §12.3: contagion retuned from 0.25/tick
         if (grid.read_buf[t][idx] > 1.0f)
           grid.read_buf[t][idx] = 1.0f;
       });
@@ -423,17 +425,25 @@ void register_panic_systems(flecs::world &ecs) {
 
         int t = team.team % PanicGrid::TEAMS;
         int idx = PanicGrid::world_to_idx(pos.x, pos.z);
-        grid.read_buf[t][idx] += 0.4f;
+        grid.read_buf[t][idx] +=
+            0.20f; // M7.5 §12.3: death fear retuned from 0.4
         if (grid.read_buf[t][idx] > 1.0f)
           grid.read_buf[t][idx] = 1.0f;
       });
 
-  // ── System 7b: Drummer Panic Cleanse (M7) ────────────────
-  // GDD §5.4: Alive drummer injects -0.2 panic/tick at their cell.
-  ecs.system<const Position, const TeamId>("DrummerPanicCleanseSystem")
-      .with<Drummer>()
+  // ── System 7b: Distributed Drummer Aura (M7.5 §12.4) ─────
+  // If drummer is alive, EVERY soldier cleanses their own cell.
+  // Per-soldier: -0.015/sec. 15 men/cell = -0.225/sec total.
+  // Aura morphs with formation shape. Brittle flanks!
+  ecs.system<const Position, const BattalionId, const TeamId>(
+         "DistributedDrummerAura")
       .with<IsAlive>()
-      .each([](flecs::entity e, const Position &pos, const TeamId &team) {
+      .each([](flecs::entity e, const Position &pos, const BattalionId &bat,
+               const TeamId &team) {
+        uint32_t id = bat.id % MAX_BATTALIONS;
+        if (!g_macro_battalions[id].drummer_alive)
+          return;
+
         float dt = e.world().delta_time();
         if (dt <= 0.0f)
           return;
@@ -441,9 +451,11 @@ void register_panic_systems(flecs::world &ecs) {
         PanicGrid &grid = e.world().ensure<PanicGrid>();
         int t = team.team % PanicGrid::TEAMS;
         int idx = PanicGrid::world_to_idx(pos.x, pos.z);
-        grid.read_buf[t][idx] -= 0.2f * dt;
-        if (grid.read_buf[t][idx] < 0.0f)
-          grid.read_buf[t][idx] = 0.0f;
+        if (idx >= 0 && idx < PanicGrid::CELLS) {
+          grid.read_buf[t][idx] -= 0.015f * dt;
+          if (grid.read_buf[t][idx] < 0.0f)
+            grid.read_buf[t][idx] = 0.0f;
+        }
       });
 }
 
