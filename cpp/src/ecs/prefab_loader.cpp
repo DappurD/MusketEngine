@@ -83,11 +83,15 @@ void load_all_prefabs(flecs::world &ecs) {
           if (bld.contains("components") &&
               bld["components"].contains("Workplace")) {
             auto &wp = bld["components"]["Workplace"];
-            prefab.set<Workplace>({wp.value("consumes_item", (uint8_t)0),
-                                   wp.value("produces_item", (uint8_t)0),
-                                   wp.value("inventory_in", (int16_t)0),
-                                   wp.value("inventory_out", (int16_t)0),
-                                   wp.value("tool_durability", 100.0f)});
+            Workplace w = {};
+            w.consumes_item = wp.value("consumes_item", (uint8_t)0);
+            w.produces_item = wp.value("produces_item", (uint8_t)0);
+            w.inventory_in = wp.value("inventory_in", (int16_t)0);
+            w.inventory_out = wp.value("inventory_out", (int16_t)0);
+            w.tool_durability = wp.value("tool_durability", 100.0f);
+            w.max_workers = wp.value("max_workers", (int16_t)4);
+            w.throughput_rate = wp.value("throughput_rate", (uint32_t)1);
+            prefab.set<Workplace>(w);
           }
         }
       }

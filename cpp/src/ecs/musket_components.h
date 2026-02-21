@@ -278,33 +278,111 @@ struct alignas(64) SpatialHashGrid {
 // S-LOD: Off-screen agents skip 60Hz physics/targeting
 struct MacroSimulated {}; // Tag — entity runs 0.1Hz abstract tick only
 
-// ─── Economy: Civilian ────────────────────────────────────
-struct Citizen {
-  enum State : uint8_t { IDLE, WALKING_TO_SOURCE, WALKING_TO_DEST };
-  State current_state;
-  uint8_t carrying_item; // ITEM_WHEAT, ITEM_MUSKET, etc.
-  uint8_t carrying_amount;
-  // current_target is stored as a Flecs relationship, not inline
-}; // 3 bytes (lightweight!)
+// ─── M9: Economy — Citizen State Machine ──────────────────
+enum CitizenState : uint8_t {
+  CSTATE_IDLE = 0,
+  CSTATE_SLEEPING,
+  CSTATE_COMMUTE_WORK,
+  CSTATE_WORKING,
+  CSTATE_SEEK_MARKET,
+  CSTATE_LOGISTICS_TO_SRC,
+  CSTATE_LOGISTICS_TO_DEST
+};
 
-// ─── Economy: Buildings ───────────────────────────────────
-struct Workplace {
-  uint8_t consumes_item;
-  uint8_t produces_item;
-  int16_t inventory_in;
-  int16_t inventory_out;
-  float tool_durability; // Degrades over time
-}; // 10 bytes
+// ─── M9: The Citizen (32 Bytes, alignas(32)) ──────────────
+// Law 4: Full vision struct. All fields the citizen will EVER need.
+// 2 citizens per 64B cache line. SIMD-friendly iteration.
+struct alignas(32) Citizen {
+  uint64_t home_id;        // 8B: Entity ID of Household
+  uint64_t workplace_id;   // 8B: Entity ID of Forge/Mill
+  uint64_t current_target; // 8B: Physical waypoint entity
 
-// ─── Economy: Social ──────────────────────────────────────
-struct SocialClass {
-  enum Type : uint8_t { PEASANT, ARTISAN, MERCHANT, NOBLE };
-  Type type;
-}; // 1 byte
+  float satisfaction; // 4B: 0.0-1.0 (drives Zeitgeist)
 
-struct Morale {
-  float value;
-}; // 4 bytes (0.0 = enraged, 1.0 = loyal)
+  CitizenState state;      // 1B: Routine phase
+  uint8_t social_class;    // 1B: 0=Peasant, 1=Artisan, 2=Merchant
+  uint8_t carrying_item;   // 1B: From ItemType enum
+  uint8_t carrying_amount; // 1B: Up to 255
+}; // 32 bytes
+
+// ─── M9: The Workplace (32 Bytes, alignas(32)) ────────────
+// Smart Buildings: produce at 1Hz, post jobs to global board.
+struct alignas(32) Workplace {
+  int16_t inventory_in;   // 2B
+  int16_t inventory_out;  // 2B
+  uint8_t consumes_item;  // 1B
+  uint8_t produces_item;  // 1B
+  int16_t active_workers; // 2B
+
+  float production_timer; // 4B: Ticks at 1Hz
+  float hazard_level;     // 4B: Spark/Explosion risk (GDD §7.3)
+  float tool_durability;  // 4B: Degrades over time
+
+  uint32_t throughput_rate; // 4B: S-LOD abstract tick rate
+  int16_t max_workers;      // 2B
+  uint16_t pad;             // 2B: Padding to 32 bytes
+}; // 32 bytes
+
+// ─── M9: The Household (16 Bytes, alignas(16)) ────────────
+// Attached to residential building entities.
+struct alignas(16) Household {
+  int16_t food_stock;        // 2B
+  int16_t fuel_stock;        // 2B
+  int16_t living_population; // 2B
+  uint8_t plot_level;        // 1B: 1=Tent, 2=House, 3=Artisan
+  uint8_t wealth_level;      // 1B
+
+  float accumulated_wealth; // 4B
+  uint32_t pad;             // 4B
+}; // 16 bytes
+
+// ─── M9: Global Job Board (Transient) ─────────────────────
+// std::vector is OK here — it's a global singleton, not per-cell (Trap 30
+// exemption).
+struct LogisticsJob {
+  uint64_t source_building; // 8B
+  uint64_t dest_building;   // 8B
+  uint8_t item_type;        // 1B
+  uint8_t amount;           // 1B
+  uint16_t priority;        // 2B
+  uint32_t flow_field_id;   // 4B
+}; // 24 bytes
+
+// ─── M9: Civic Grid (Singleton CA — same arch as PanicGrid) ──
+struct CivicGrid {
+  static constexpr int WIDTH = 64;
+  static constexpr int HEIGHT = 64;
+  static constexpr int CELLS = WIDTH * HEIGHT;
+  static constexpr float CELL_SIZE = 4.0f;
+  static constexpr float HALF_W = (WIDTH / 2) * CELL_SIZE;
+  static constexpr float HALF_H = (HEIGHT / 2) * CELL_SIZE;
+
+  float market_access[CELLS]; // Diffuses from food stalls
+  float pollution[CELLS];     // Diffuses from Tanneries/Niter
+
+  static int world_to_idx(float wx, float wz) {
+    int cx = (int)((wx + HALF_W) / CELL_SIZE);
+    int cz = (int)((wz + HALF_H) / CELL_SIZE);
+    if (cx < 0)
+      cx = 0;
+    if (cx >= WIDTH)
+      cx = WIDTH - 1;
+    if (cz < 0)
+      cz = 0;
+    if (cz >= HEIGHT)
+      cz = HEIGHT - 1;
+    return cz * WIDTH + cx;
+  }
+};
+
+// ─── M9: Zeitgeist Aggregation (Singleton) ────────────────
+struct GlobalZeitgeist {
+  int angry_peasants;
+  int angry_artisans;
+  int angry_merchants;
+  int total_citizens;
+  float avg_satisfaction;
+}; // 20 bytes
 
 // ─── Item IDs ─────────────────────────────────────────────
 enum ItemType : uint8_t {

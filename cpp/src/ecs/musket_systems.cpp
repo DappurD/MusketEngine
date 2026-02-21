@@ -2,6 +2,7 @@
 #include "musket_components.h"
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 // NOTE: g_macro_battalions is defined in world_manager.cpp (the golden TU).
 // ecs.each<> template statics must share the TU where components are
@@ -927,6 +928,250 @@ void register_cavalry_systems(flecs::world &ecs) {
           cs.state_timer = 0.0f;
           cav.remove<ChargeOrder>();
         }
+      });
+}
+
+// ═════════════════════════════════════════════════════════════
+// M9: ECONOMY SYSTEMS (GDD §7.1 — Smart Buildings, Dumb Agents)
+// ═════════════════════════════════════════════════════════════
+
+// Global job board (transient — cleared each matchmaker tick)
+static std::vector<LogisticsJob> g_global_job_board;
+static int g_idle_citizen_count = 0; // Trap 41: early-out for matchmaker
+
+void register_economy_systems(flecs::world &ecs) {
+
+  // ── System M9.1: Citizen Movement (60Hz) ─────────────────────
+  // The "Dumb Agent" loop. If IDLE/WORKING/SLEEPING, zero velocity
+  // and skip (costs 0 CPU). If moving, spring toward current_target.
+  ecs.system<Citizen, Position, Velocity>("CitizenMovementSystem")
+      .with<IsAlive>()
+      .without<MacroSimulated>()
+      .each([](flecs::entity e, Citizen &c, Position &pos, Velocity &vel) {
+        // Skip stationary states — costs 0 CPU
+        if (c.state == CSTATE_IDLE || c.state == CSTATE_WORKING ||
+            c.state == CSTATE_SLEEPING) {
+          vel.vx = 0.0f;
+          vel.vz = 0.0f;
+          return;
+        }
+
+        // Trap 40: Validate target is alive before moving toward it
+        if (c.current_target == 0 || !e.world().is_alive(c.current_target)) {
+          c.state = CSTATE_IDLE;
+          c.current_target = 0;
+          vel.vx = 0.0f;
+          vel.vz = 0.0f;
+          return;
+        }
+
+        // Simple spring toward target position
+        // (Full flow field pathfinding is M11 — for now, direct spring)
+        const Position &tp = e.world().entity(c.current_target).get<Position>();
+        float dx = tp.x - pos.x;
+        float dz = tp.z - pos.z;
+        float dist_sq = dx * dx + dz * dz;
+
+        if (dist_sq < 1.0f) {
+          // Arrived — velocity zeroed, state machine handles transition
+          vel.vx = 0.0f;
+          vel.vz = 0.0f;
+          return;
+        }
+
+        // Normalize and apply citizen walking speed
+        constexpr float CITIZEN_SPEED = 2.0f; // m/s
+        float inv_dist = 1.0f / std::sqrt(dist_sq);
+        vel.vx = dx * inv_dist * CITIZEN_SPEED;
+        vel.vz = dz * inv_dist * CITIZEN_SPEED;
+      });
+
+  // ── System M9.2: Citizen Routine (5Hz) ───────────────────────
+  // The "Brain" — evaluates arrival, advances state machine.
+  // Amortized at 5Hz via a tick accumulator.
+  ecs.system<Citizen, const Position>("CitizenRoutineSystem")
+      .with<IsAlive>()
+      .without<MacroSimulated>()
+      .each([](flecs::entity e, Citizen &c, const Position &pos) {
+        // 5Hz amortization: only tick every ~0.2s using entity hash
+        // Distributes load across frames instead of all citizens at once
+        uint32_t frame_slot = (uint32_t)(e.id() % 12);
+        uint32_t current_slot =
+            (uint32_t)(e.world().get_info()->world_time_total * 60.0) % 12;
+        if (frame_slot != current_slot)
+          return;
+
+        // Count idle citizens for Trap 41 matchmaker guard
+        if (c.state == CSTATE_IDLE)
+          g_idle_citizen_count++;
+
+        // State machine transitions on arrival
+        if (c.state == CSTATE_LOGISTICS_TO_SRC && c.current_target != 0) {
+          if (!e.world().is_alive(c.current_target)) {
+            c.state = CSTATE_IDLE;
+            c.current_target = 0;
+            return;
+          }
+          const Position &tp =
+              e.world().entity(c.current_target).get<Position>();
+          float dx = tp.x - pos.x;
+          float dz = tp.z - pos.z;
+          if ((dx * dx + dz * dz) < 4.0f) {
+            // Arrived at source — pick up goods, redirect to dest
+            // (In full implementation, reads from Workplace inventory)
+            c.state = CSTATE_LOGISTICS_TO_DEST;
+            // current_target will be set to dest by matchmaker
+          }
+        } else if (c.state == CSTATE_LOGISTICS_TO_DEST &&
+                   c.current_target != 0) {
+          if (!e.world().is_alive(c.current_target)) {
+            c.state = CSTATE_IDLE;
+            c.current_target = 0;
+            c.carrying_amount = 0;
+            return;
+          }
+          const Position &tp =
+              e.world().entity(c.current_target).get<Position>();
+          float dx = tp.x - pos.x;
+          float dz = tp.z - pos.z;
+          if ((dx * dx + dz * dz) < 4.0f) {
+            // Arrived at dest — deliver goods, become idle
+            c.carrying_amount = 0;
+            c.carrying_item = 0; // ITEM_NONE
+            c.state = CSTATE_IDLE;
+            c.current_target = 0;
+          }
+        }
+
+        // Satisfaction update from CivicGrid (sleeping citizens)
+        if (c.state == CSTATE_SLEEPING) {
+          const CivicGrid &civic = e.world().get<CivicGrid>();
+          int idx = CivicGrid::world_to_idx(pos.x, pos.z);
+          float market = civic.market_access[idx];
+          float pollute = civic.pollution[idx];
+          // Satisfaction rises with market access, drops with pollution
+          c.satisfaction += (market * 0.01f - pollute * 0.02f);
+          if (c.satisfaction < 0.0f)
+            c.satisfaction = 0.0f;
+          if (c.satisfaction > 1.0f)
+            c.satisfaction = 1.0f;
+        }
+      });
+
+  // ── System M9.3: Workplace Logic (1Hz) ───────────────────────
+  // Smart Buildings: if workers present + inputs available, produce.
+  ecs.system<Workplace>("WorkplaceLogicSystem")
+      .with<IsAlive>()
+      .each([](flecs::entity e, Workplace &wp) {
+        // 1Hz: tick every ~60 frames using entity hash
+        uint32_t frame_slot = (uint32_t)(e.id() % 60);
+        uint32_t current_slot =
+            (uint32_t)(e.world().get_info()->world_time_total * 60.0) % 60;
+        if (frame_slot != current_slot)
+          return;
+
+        // No workers → no production
+        if (wp.active_workers <= 0)
+          return;
+
+        // Tool degradation (GDD §7.3)
+        if (wp.tool_durability > 0.0f) {
+          wp.tool_durability -= 0.01f;
+        }
+
+        // Production: if we have input, convert to output
+        if (wp.inventory_in > 0 && wp.tool_durability > 0.0f) {
+          wp.production_timer += 1.0f;
+          if (wp.production_timer >= 1.0f) {
+            wp.production_timer = 0.0f;
+            wp.inventory_in--;
+            wp.inventory_out++;
+          }
+        }
+
+        // If output stockpile is high, post a logistics job for pickup
+        if (wp.inventory_out > 5) {
+          LogisticsJob job;
+          job.source_building = e.id();
+          job.dest_building = 0; // Matchmaker assigns nearest consumer
+          job.item_type = wp.produces_item;
+          job.amount = 1;
+          job.priority = (uint16_t)wp.inventory_out;
+          job.flow_field_id = 0;
+          g_global_job_board.push_back(job);
+        }
+      });
+
+  // ── System M9.4: Zeitgeist Aggregation (0.2Hz) ──────────────
+  // 5-second tick. Sums satisfaction by social_class.
+  ecs.system<const Citizen>("ZeitgeistAggregationSystem")
+      .with<IsAlive>()
+      .each([](flecs::entity e, const Citizen &c) {
+        // 0.2Hz: every ~300 frames using a global slot
+        uint32_t current_slot =
+            (uint32_t)(e.world().get_info()->world_time_total * 0.2) % 2;
+        static uint32_t last_slot = 999;
+        if (current_slot == last_slot)
+          return;
+
+        GlobalZeitgeist &z = e.world().get_mut<GlobalZeitgeist>();
+
+        // Only reset on first entity of new tick
+        static uint32_t reset_frame = 999;
+        uint32_t this_frame =
+            (uint32_t)(e.world().get_info()->world_time_total * 60.0);
+        if (reset_frame != this_frame) {
+          reset_frame = this_frame;
+          z.angry_peasants = 0;
+          z.angry_artisans = 0;
+          z.angry_merchants = 0;
+          z.total_citizens = 0;
+          z.avg_satisfaction = 0.0f;
+          g_idle_citizen_count = 0; // Also reset idle count
+        }
+
+        z.total_citizens++;
+        z.avg_satisfaction += c.satisfaction;
+
+        if (c.satisfaction < 0.4f) {
+          if (c.social_class == 0)
+            z.angry_peasants++;
+          else if (c.social_class == 1)
+            z.angry_artisans++;
+          else if (c.social_class == 2)
+            z.angry_merchants++;
+        }
+
+        // Last entity updates the slot
+        last_slot = current_slot;
+      });
+
+  // ── M9.5: Conscription Bridge Observer ───────────────────────
+  // Trap: remove<Citizen>() must cleanly untangle all references.
+  // Severs workplace link, household link, drops carried goods.
+  ecs.observer<Citizen>("OnCitizenDraftedOrKilled")
+      .event(flecs::OnRemove)
+      .each([](flecs::entity e, Citizen &c) {
+        flecs::world w = e.world();
+
+        // 1. Sever Workplace Link
+        if (c.workplace_id != 0 && w.is_alive(c.workplace_id)) {
+          Workplace &wp = w.entity(c.workplace_id).get_mut<Workplace>();
+          if (wp.active_workers > 0)
+            wp.active_workers--;
+        }
+
+        // 2. Sever Household Link
+        if (c.home_id != 0 && w.is_alive(c.home_id)) {
+          Household &hh = w.entity(c.home_id).get_mut<Household>();
+          if (hh.living_population > 0)
+            hh.living_population--;
+        }
+
+        // 3. Drop carried goods (item entity spawn would go here)
+        // For now, goods are simply lost (proper drop_item is M11)
+        c.carrying_amount = 0;
+        c.carrying_item = 0;
       });
 }
 

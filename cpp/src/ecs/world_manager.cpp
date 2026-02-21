@@ -342,6 +342,13 @@ void MusketServer::init_ecs() {
   musket::register_cavalry_systems(ecs);
   musket::register_death_clear_observer(ecs);
 
+  // Initialize M9 economy singletons
+  ecs.set<CivicGrid>({});
+  ecs.set<GlobalZeitgeist>({});
+
+  // Register M9 economy systems
+  musket::register_economy_systems(ecs);
+
   // Load JSON prefabs
   musket::load_all_prefabs(ecs);
 
