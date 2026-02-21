@@ -315,7 +315,18 @@ void MusketServer::init_ecs() {
   // Register M2 movement systems
   musket::register_movement_systems(ecs);
 
-  // Register M3 combat systems
+  // Initialize M8 spatial hash grid singleton (heap-allocated: 4.2MB)
+  // Must come before register_combat_systems which registers the rebuild
+  // system.
+  {
+    auto *shg = new SpatialHashGrid();
+    memset(shg, 0, sizeof(SpatialHashGrid));
+    memset(shg->cell_head, -1, sizeof(shg->cell_head));
+    ecs.set<SpatialHashGrid>(*shg);
+    delete shg;
+  }
+
+  // Register M3+M8 combat systems
   musket::register_combat_systems(ecs);
 
   // Initialize M4 panic grid singleton (zero-initialized)

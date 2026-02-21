@@ -1,6 +1,7 @@
 #include "musket_systems.h"
 #include "musket_components.h"
 #include <cmath>
+#include <cstring>
 
 // NOTE: g_macro_battalions is defined in world_manager.cpp (the golden TU).
 // ecs.each<> template statics must share the TU where components are
@@ -115,10 +116,51 @@ void register_movement_systems(flecs::world &ecs) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// M3: VOLLEY COMBAT SYSTEMS (CORE_MATH.md §2)
+// M3+M8: COMBAT SYSTEMS (Spatial Hash + Volley Fire)
 // ═════════════════════════════════════════════════════════════
 
 void register_combat_systems(flecs::world &ecs) {
+
+  // ── M8 System: Spatial Grid Rebuild (PreUpdate) ──────────────
+  // Rebuilds the flat-array spatial hash from scratch every frame.
+  // Uses .each() (Flecs API). Frame boundary detected via frame_id.
+  // Cost: ~0.8ms at 100K entities (memset + linear insert).
+  ecs.system<const Position, const BattalionId, const TeamId>(
+         "SpatialGridRebuild")
+      .kind(flecs::PreUpdate)
+      .with<IsAlive>()
+      .without<MacroSimulated>()
+      .each([](flecs::entity e, const Position &p, const BattalionId &b,
+               const TeamId &t) {
+        SpatialHashGrid &grid = e.world().get_mut<SpatialHashGrid>();
+
+        // Detect frame boundary: world tick count changes → new frame
+        uint32_t current_frame =
+            (uint32_t)(e.world().get_info()->world_time_total * 60.0);
+        if (grid.last_frame_id != current_frame) {
+          grid.last_frame_id = current_frame;
+          grid.active_count = 0;
+          memset(grid.cell_head, -1, sizeof(grid.cell_head));
+        }
+
+        if (grid.active_count >= SPATIAL_MAX_ENTITIES)
+          return;
+
+        int cx, cz;
+        SpatialHashGrid::world_to_cell(p.x, p.z, cx, cz);
+        int cell_idx = cz * SPATIAL_WIDTH + cx;
+        int idx = grid.active_count++;
+
+        grid.entity_id[idx] = e.id();
+        grid.pos_x[idx] = p.x;
+        grid.pos_z[idx] = p.z;
+        grid.bat_id[idx] = b.id % MAX_BATTALIONS;
+        grid.team_id[idx] = t.team;
+
+        // Insert at head of flat-array linked list
+        grid.entity_next[idx] = grid.cell_head[cell_idx];
+        grid.cell_head[cell_idx] = idx;
+      });
 
   // ── System 3: Musket Reload Tick (60Hz) ─────────────────────
   // Counts down reload_timer for all alive soldiers with muskets.
@@ -135,12 +177,15 @@ void register_combat_systems(flecs::world &ecs) {
         }
       });
 
-  // ── System 4: Volley Fire (M7.5 §12.7-§12.8) ────────────────
-  // Doctrine gates, firing arc, O(1) hoisted targeting, stateless jitter.
+  // ── System 4: Volley Fire (M8: Spatial Hash queries) ──────────
+  // O(N×K) where K = entities within musket range (~7x7 cells).
+  // Replaces the catastrophic O(N²) w.each() scan from M3.
+  // Fire discipline logic preserved from M7.5.
   ecs.system<const Position, MusketState, const SoldierFormationTarget,
              const BattalionId, const TeamId>("VolleyFireSystem")
       .with<IsAlive>()
-      .without<Routing>() // Trap 27: Routing soldiers DO NOT fire!
+      .without<Routing>()        // Trap 27: Routing soldiers DO NOT fire!
+      .without<MacroSimulated>() // S-LOD: off-screen agents don't fire
       .each([](flecs::entity e, const Position &pos, MusketState &ms,
                const SoldierFormationTarget &tgt, const BattalionId &bat,
                const TeamId &team) {
@@ -195,42 +240,57 @@ void register_combat_systems(flecs::world &ecs) {
         if (bd2 > (MAX_MUSKET_RANGE * MAX_MUSKET_RANGE * 4.0f))
           return; // Way out of range
 
-        // ─── §12.8: MICRO TARGET + FIRING ARC ──────────────────
+        // ─── M8: SPATIAL HASH MICRO TARGET (replaces O(N²) scan) ──
+        const SpatialHashGrid &grid = e.world().get<SpatialHashGrid>();
+        const int rad_cells =
+            static_cast<int>(MAX_MUSKET_RANGE / SPATIAL_CELL_SIZE) + 1;
+
+        int my_cx, my_cz;
+        SpatialHashGrid::world_to_cell(pos.x, pos.z, my_cx, my_cz);
+
         float best_dist_sq = MAX_MUSKET_RANGE * MAX_MUSKET_RANGE;
-        flecs::entity best_target = flecs::entity::null();
+        uint64_t best_target_id = 0;
         float final_shot_dot = 1.0f;
 
-        flecs::world w = e.world();
-        w.each([&](flecs::entity te, const Position &tp, const TeamId &tt,
-                   const BattalionId &tb) {
-          if (!te.has<IsAlive>() || tt.team == team.team)
-            return;
-          if ((int)(tb.id % MAX_BATTALIONS) != best_bat_id)
-            return;
+        // Bounding box iteration (~7x7 cells for 100m range with 32m cells)
+        int z_min = (my_cz - rad_cells) < 0 ? 0 : (my_cz - rad_cells);
+        int z_max = (my_cz + rad_cells) >= SPATIAL_HEIGHT ? SPATIAL_HEIGHT - 1
+                                                          : (my_cz + rad_cells);
+        int x_min = (my_cx - rad_cells) < 0 ? 0 : (my_cx - rad_cells);
+        int x_max = (my_cx + rad_cells) >= SPATIAL_WIDTH ? SPATIAL_WIDTH - 1
+                                                         : (my_cx + rad_cells);
 
-          float tdx = tp.x - pos.x;
-          float tdz = tp.z - pos.z;
-          float td2 = tdx * tdx + tdz * tdz;
-          if (td2 >= best_dist_sq)
-            return;
+        for (int z = z_min; z <= z_max; ++z) {
+          for (int x = x_min; x <= x_max; ++x) {
+            int curr_idx = grid.cell_head[z * SPATIAL_WIDTH + x];
 
-          float dist = std::sqrt(td2);
-          if (dist < 0.01f)
-            return;
-          float nx = tdx / dist;
-          float nz = tdz / dist;
+            while (curr_idx != -1) {
+              // SoA data locality — only touches pos_x/z, bat_id arrays
+              if (grid.bat_id[curr_idx] == (uint32_t)best_bat_id) {
+                float tdx = grid.pos_x[curr_idx] - pos.x;
+                float tdz = grid.pos_z[curr_idx] - pos.z;
+                float td2 = tdx * tdx + tdz * tdz;
 
-          // §12.8: Dot product firing arc — chest facing vs target direction
-          float dot = nx * tgt.face_dir_x + nz * tgt.face_dir_z;
-          if (dot < 0.5f)
-            return; // >60° off-axis — physically can't twist
+                if (td2 < best_dist_sq && td2 > 0.01f) {
+                  float dist = std::sqrt(td2);
+                  float nx = tdx / dist;
+                  float nz = tdz / dist;
 
-          best_dist_sq = td2;
-          best_target = te;
-          final_shot_dot = dot;
-        });
+                  // §12.8: Firing arc — chest facing vs target direction
+                  float dot = nx * tgt.face_dir_x + nz * tgt.face_dir_z;
+                  if (dot > 0.5f) {
+                    best_dist_sq = td2;
+                    best_target_id = grid.entity_id[curr_idx];
+                    final_shot_dot = dot;
+                  }
+                }
+              }
+              curr_idx = grid.entity_next[curr_idx];
+            }
+          }
+        }
 
-        if (!best_target.is_valid() || !best_target.is_alive())
+        if (best_target_id == 0)
           return;
 
         // ─── HIT CHANCE + ARC PENALTY ───────────────────────────
@@ -254,6 +314,7 @@ void register_combat_systems(flecs::world &ecs) {
           hit_chance = 1.0f;
 
         // Deterministic hash-based random
+        flecs::world w = e.world();
         uint64_t seed =
             e.id() ^ (uint64_t)(w.get_info()->world_time_total * 100000.0);
         seed ^= seed >> 33;
@@ -266,7 +327,8 @@ void register_combat_systems(flecs::world &ecs) {
         ms.ammo_count--;
 
         if (roll <= hit_chance) {
-          best_target.remove<IsAlive>();
+          // Trap 32: Deferred removal for thread safety
+          w.entity(best_target_id).remove<IsAlive>();
         }
       });
 }

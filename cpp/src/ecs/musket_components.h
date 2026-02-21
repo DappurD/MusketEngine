@@ -230,6 +230,54 @@ struct PanicGrid {
     return cz * WIDTH + cx;
   }
 };
+
+// ─── M8: Spatial Hash Grid (Singleton) ────────────────────
+// Flat-array SoA spatial hash. Rebuilt from scratch every frame.
+// Head/next linked list pattern — ZERO heap allocations.
+// Trap 30: std::vector-per-cell is BANNED (heap fragmentation).
+constexpr float SPATIAL_CELL_SIZE =
+    32.0f;                         // 32m cells (100m range = ~7x7 search)
+constexpr int SPATIAL_WIDTH = 128; // 4096m x 4096m map
+constexpr int SPATIAL_HEIGHT = 128;
+constexpr int SPATIAL_MAX_CELLS =
+    SPATIAL_WIDTH * SPATIAL_HEIGHT;          // 16,384 cells
+constexpr int SPATIAL_MAX_ENTITIES = 131072; // 128K cap
+
+struct alignas(64) SpatialHashGrid {
+  // Cell → first entity index (-1 = empty)
+  int32_t cell_head[SPATIAL_MAX_CELLS];
+
+  // Entity → next entity in same cell (-1 = end of chain)
+  int32_t entity_next[SPATIAL_MAX_ENTITIES];
+
+  // SoA data: cache-coherent filtering without loading full components
+  uint64_t entity_id[SPATIAL_MAX_ENTITIES];
+  float pos_x[SPATIAL_MAX_ENTITIES];
+  float pos_z[SPATIAL_MAX_ENTITIES];
+  uint32_t bat_id[SPATIAL_MAX_ENTITIES];
+  uint8_t team_id[SPATIAL_MAX_ENTITIES];
+
+  int32_t active_count;
+  uint32_t last_frame_id; // Frame-boundary detection for .each() rebuild
+
+  // World → cell coords with +2048 offset (Trap 31: no negative truncation)
+  static inline void world_to_cell(float wx, float wz, int &cx, int &cz) {
+    cx = static_cast<int>((wx + 2048.0f) / SPATIAL_CELL_SIZE);
+    cz = static_cast<int>((wz + 2048.0f) / SPATIAL_CELL_SIZE);
+    if (cx < 0)
+      cx = 0;
+    else if (cx >= SPATIAL_WIDTH)
+      cx = SPATIAL_WIDTH - 1;
+    if (cz < 0)
+      cz = 0;
+    else if (cz >= SPATIAL_HEIGHT)
+      cz = SPATIAL_HEIGHT - 1;
+  }
+}; // ~4.2 MB — fits in L3 cache
+
+// S-LOD: Off-screen agents skip 60Hz physics/targeting
+struct MacroSimulated {}; // Tag — entity runs 0.1Hz abstract tick only
+
 // ─── Economy: Civilian ────────────────────────────────────
 struct Citizen {
   enum State : uint8_t { IDLE, WALKING_TO_SOURCE, WALKING_TO_DEST };
