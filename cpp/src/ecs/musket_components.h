@@ -23,11 +23,28 @@ struct Height {
 }; // 4 bytes
 
 // ─── Combat: Formation ────────────────────────────────────
-struct SoldierFormationTarget {
-  float target_x, target_z; // Slot position
-  float base_stiffness;     // Modified by morale/uniforms
-  float damping_multiplier; // ~2.0 for critical damping
-}; // 16 bytes
+enum FormationShape : uint8_t {
+  SHAPE_LINE = 0,
+  SHAPE_COLUMN = 1,
+  SHAPE_SQUARE = 2
+};
+
+enum FireDiscipline : uint8_t {
+  DISCIPLINE_HOLD = 0,       // Reload but do NOT fire
+  DISCIPLINE_AT_WILL = 1,    // Fire when ready (default)
+  DISCIPLINE_BY_RANK = 2,    // Rolling rank fire (3s cycle)
+  DISCIPLINE_MASS_VOLLEY = 3 // All fire in 0.5s window → HOLD
+};
+
+struct alignas(64) SoldierFormationTarget {
+  double target_x, target_z;    // Slot position (double: Trap 10 precision)
+  float base_stiffness;         // Modified by morale/uniforms
+  float damping_multiplier;     // ~2.0 for critical damping
+  float face_dir_x, face_dir_z; // Per-soldier facing vector (§12.8)
+  bool can_shoot;               // Enforces Column/Square fire limits
+  uint8_t rank_index;           // 0=Front, 1=Mid, 2=Rear
+  uint8_t pad[6];               // Explicit padding to 64 bytes
+}; // 64 bytes — 1 soldier = 1 L1 cache line (Trap 25)
 
 // ─── Stats ────────────────────────────────────────────────
 struct MovementStats {
@@ -101,8 +118,8 @@ struct FormationDefense {
 }; // 4 bytes
 
 // ─── Cavalry: MacroBattalion Centroid Cache (Deep Think #4) ──
-// Pre-computed per-frame. O(1) lookups for charge targeting
-// AND M7 command network state (flag/drummer/officer alive).
+// Pre-computed per-frame. O(1) lookups for charge targeting,
+// M7 command network, M7.5 fire discipline + targeting.
 struct MacroBattalion {
   // ── Transient State (zeroed every frame in centroid pass) ──
   float cx = 0.0f;
@@ -117,6 +134,17 @@ struct MacroBattalion {
 
   // ── Persistent State (DO NOT zero in centroid pass — Trap 23) ──
   float flag_cohesion = 1.0f; // Decay: 16s to 0.2 floor when flag dies
+
+  // ── M7.5 Fire Discipline (Persistent — Trap 28) ──
+  FireDiscipline fire_discipline = DISCIPLINE_AT_WILL;
+  uint8_t active_firing_rank = 0; // Cycles 0→1→2 for BY_RANK
+  float volley_timer = 0.0f;      // Metronome countdown
+
+  // ── M7.5 OBB Geometry (Persistent — set by order_formation) ──
+  float dir_x = 0.0f, dir_z = -1.0f; // Battalion facing vector
+  float ext_w = 0.0f;                // OBB half-width + 2m buffer
+  float ext_d = 0.0f;                // OBB half-depth + 2m buffer
+  int target_bat_id = -1;            // Hoisted macro targeting (Trap 26)
 };
 
 // EXTERN: declared here, defined ONCE in world_manager.cpp
@@ -151,13 +179,15 @@ enum OrderType : uint8_t {
   ORDER_NONE = 0,
   ORDER_MARCH,
   ORDER_FIRE,
-  ORDER_CHARGE
+  ORDER_CHARGE,
+  ORDER_DISCIPLINE // M7.5: Change fire doctrine
 };
 struct PendingOrder {
   OrderType type = ORDER_NONE;
   float target_x = 0.0f;
   float target_z = 0.0f;
   float delay = 0.0f;
+  uint8_t requested_discipline = 0; // M7.5: FireDiscipline enum value
 };
 extern PendingOrder g_pending_orders[MAX_BATTALIONS];
 

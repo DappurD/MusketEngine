@@ -100,15 +100,26 @@
 | `cpp/src/ecs/musket_components.h` | `Drummer` tag, `PendingOrder` struct, `OrderType` enum, expanded `MacroBattalion` (flag/drummer/officer/cohesion) |
 | `cpp/src/ecs/world_manager.cpp` | `g_pending_orders[256]`, centroid pass detects M7 tags, flag cohesion decay, order delay pipeline, command staff spawning |
 | `cpp/src/ecs/musket_systems.cpp` | SpringDamperPhysics flag_cohesion, drummer speed buff, officer blind fire, DrummerPanicCleanseSystem |
+### M7.5 Files
+| File | Purpose |
+|---|---|
+| `cpp/src/ecs/musket_components.h` | `FormationShape`, `FireDiscipline` enums, `alignas(64) SoldierFormationTarget` (64B, double coords, face vectors, can_shoot, rank_index), `MacroBattalion` +OBB/discipline/target_bat_id, `ORDER_DISCIPLINE` |
+| `cpp/src/ecs/world_manager.cpp` | 3-rank spawner (0.8m×1.2m), embedded command staff, hoisted O(B²) targeting (OBB seg-int), Officer's Metronome, ORDER_DISCIPLINE pipeline, `order_fire_discipline()`, `order_formation()` geometry engine |
+| `cpp/src/ecs/musket_systems.cpp` | VolleyFireSystem rewrite (`.without<Routing>()`, can_shoot, doctrine gates, stateless jitter, firing arc dot, hit_chance×dot), panic retuning (0.20/0.10/0.65/0.25), DistributedDrummerAura |
+| `res/scripts/test_bed.gd` | M7.5 keybinds: 4-7 fire discipline, 8-0 formation shape |
 
 ## What Is NOT Built Yet
-- **M7.5: Dynamic Tactical Formations** — 3-rank spawner, Line/Column/Square geometry engine, panic retuning, distributed drummer aura, lateral targeting penalty, `can_shoot` restrictions, rolling rank fire (NEXT)
+- ~~**M7.5: Dynamic Tactical Formations**~~ ✅ BUILT (feature/m7.5-formations branch)
 - M8: LLM General (Battle Commander + State Compressor)
 - M8-M14: LLM General, Economy
 - **M15-M18: Urbanism & Siege** — full voxel engine
 - M19-M22: Weather, Night, Audio, Cartographer
 - **VAT Ragdoll Shader** — death observer infrastructure ready, shader not written
 - **Asset pipeline** — FBX soldier models need Godot editor mesh export (.tres)
+
+### 🔴 Open Design Questions (Think Before Building)
+- **Melee Combat**: The engine has no melee system. Bayonet charges, cavalry saber engagements, and hand-to-hand routing need design. Key questions: Does melee use the same spring-damper slots? How do locked formations (Square) interact with charging infantry? What happens to `can_shoot` during melee? Does the panic grid need a "melee shock" injection separate from death fear?
+- **Small Skirmish Scaling**: The current architecture is optimized for 200-500 man battalions with macro-level targeting (O(B²) on battalion centroids). Does this architecture degrade gracefully for 10-20 man skirmish parties, hunting parties, or scouting detachments? The `MacroBattalion` struct assumes all units operate as formations — solo or small-group entities may need a different targeting path.
 
 ## Implementation Law
 

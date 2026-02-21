@@ -28,9 +28,15 @@ void load_all_prefabs(flecs::world &ecs) {
 
             if (comps.contains("FormationTarget")) {
               prefab.set<SoldierFormationTarget>(
-                  {0.0f, 0.0f, // target_x, target_z not relevant for prefab
+                  {0.0,
+                   0.0, // target_x, target_z (double)
                    comps["FormationTarget"].value("base_stiffness", 50.0f),
-                   comps["FormationTarget"].value("damping_multiplier", 2.0f)});
+                   comps["FormationTarget"].value("damping_multiplier", 2.0f),
+                   0.0f,
+                   -1.0f,
+                   true,
+                   0,
+                   {}});
             }
             if (comps.contains("MovementStats")) {
               prefab.set<MovementStats>(

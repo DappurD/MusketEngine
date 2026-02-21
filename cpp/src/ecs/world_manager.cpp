@@ -51,7 +51,7 @@ static void compute_battalion_centroids(flecs::world &ecs) {
       g_macro_battalions[id].officer_alive = true;
   });
 
-  // 3. Finalize centroids + M7 pipelines
+  // 3. Finalize centroids + M7 pipelines + M7.5 targeting + fire discipline
   for (int i = 0; i < MAX_BATTALIONS; i++) {
     auto &mb = g_macro_battalions[i];
 
@@ -70,6 +70,86 @@ static void compute_battalion_centroids(flecs::world &ecs) {
       } else {
         mb.flag_cohesion = std::max(0.2f, mb.flag_cohesion - dt * 0.05f);
       }
+
+      // M7.5 §12.7: Dead officer = loss of fire discipline!
+      if (!mb.officer_alive && mb.fire_discipline != DISCIPLINE_AT_WILL) {
+        mb.fire_discipline = DISCIPLINE_AT_WILL;
+      }
+
+      // M7.5 §12.7: Officer's Metronome — tick the fire discipline timer
+      if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+        mb.volley_timer -= dt;
+        if (mb.volley_timer <= 0.0f) {
+          mb.active_firing_rank = (mb.active_firing_rank + 1) % 3;
+          mb.volley_timer = 3.0f; // 3s between rank volleys
+        }
+      } else if (mb.fire_discipline == DISCIPLINE_MASS_VOLLEY) {
+        mb.volley_timer -= dt;
+        if (mb.volley_timer <= 0.0f) {
+          mb.fire_discipline = DISCIPLINE_HOLD; // Window closed
+        }
+      }
+
+      // ── M7.5 §12.8 Trap 26: Hoisted Macro Targeting ──
+      // O(B²) total: find nearest unblocked enemy battalion for each battalion
+      mb.target_bat_id = -1;
+      float best_dist = 1e18f;
+
+      for (int j = 0; j < MAX_BATTALIONS; j++) {
+        auto &enemy = g_macro_battalions[j];
+        if (enemy.alive_count == 0 || enemy.team_id == mb.team_id)
+          continue;
+
+        float edx = enemy.cx - mb.cx;
+        float edz = enemy.cz - mb.cz;
+        float ed2 = edx * edx + edz * edz;
+        if (ed2 >= best_dist)
+          continue;
+
+        // Check if a FRIENDLY battalion's OBB blocks this shot path
+        bool blocked = false;
+        for (int fb = 0; fb < MAX_BATTALIONS; fb++) {
+          if (fb == i || fb == j)
+            continue;
+          auto &f = g_macro_battalions[fb];
+          if (f.alive_count == 0 || f.team_id != mb.team_id)
+            continue;
+
+          // OBB diagonals
+          float rx = -f.dir_z * f.ext_w, rz = f.dir_x * f.ext_w;
+          float fx = f.dir_x * f.ext_d, fz = f.dir_z * f.ext_d;
+          // Diagonal 1: (cx-rx-fx) to (cx+rx+fx)
+          float d1ax = f.cx - rx - fx, d1az = f.cz - rz - fz;
+          float d1bx = f.cx + rx + fx, d1bz = f.cz + rz + fz;
+          // Diagonal 2: (cx+rx-fx) to (cx-rx+fx)
+          float d2ax = f.cx + rx - fx, d2az = f.cz + rz - fz;
+          float d2bx = f.cx - rx + fx, d2bz = f.cz - rz + fz;
+
+          // CCW segment intersection test (zero sqrt)
+          auto ccw = [](float ax, float az, float bx, float bz, float cx,
+                        float cz) {
+            return (cz - az) * (bx - ax) > (bz - az) * (cx - ax);
+          };
+          auto seg_hit = [&](float ax, float az, float bx, float bz, float cx,
+                             float cz, float dx, float dz) {
+            return ccw(ax, az, cx, cz, dx, dz) != ccw(bx, bz, cx, cz, dx, dz) &&
+                   ccw(ax, az, bx, bz, cx, cz) != ccw(ax, az, bx, bz, dx, dz);
+          };
+
+          if (seg_hit(mb.cx, mb.cz, enemy.cx, enemy.cz, d1ax, d1az, d1bx,
+                      d1bz) ||
+              seg_hit(mb.cx, mb.cz, enemy.cx, enemy.cz, d2ax, d2az, d2bx,
+                      d2bz)) {
+            blocked = true;
+            break;
+          }
+        }
+
+        if (!blocked && ed2 < best_dist) {
+          best_dist = ed2;
+          mb.target_bat_id = j;
+        }
+      }
     }
 
     // Phase D: Order Delay Pipeline
@@ -81,23 +161,35 @@ static void compute_battalion_centroids(flecs::world &ecs) {
         float tx = order.target_x;
         float tz = order.target_z;
 
-        // Dispatch to ECS entities in this battalion
-        ecs.each([&](flecs::entity e, const BattalionId &b) {
-          if ((int)(b.id % MAX_BATTALIONS) != i || !e.has<IsAlive>())
-            return;
-          if (e.has<CavalryState>()) {
-            const auto &cs = e.get<CavalryState>();
-            if (cs.state_flags != 0)
+        if (otype == ORDER_DISCIPLINE) {
+          // M7.5 §12.7: Fire discipline change
+          mb.fire_discipline = (FireDiscipline)order.requested_discipline;
+          if (mb.fire_discipline == DISCIPLINE_BY_RANK) {
+            mb.active_firing_rank = 0;
+            mb.volley_timer = 3.0f;
+          } else if (mb.fire_discipline == DISCIPLINE_MASS_VOLLEY) {
+            mb.volley_timer = 0.5f; // 0.5s execution window
+          }
+        } else {
+          // Dispatch to ECS entities in this battalion
+          ecs.each([&](flecs::entity e, const BattalionId &b) {
+            if ((int)(b.id % MAX_BATTALIONS) != i || !e.has<IsAlive>())
               return;
-          }
+            if (e.has<CavalryState>()) {
+              const auto &cs = e.get<CavalryState>();
+              if (cs.state_flags != 0)
+                return;
+            }
 
-          if (otype == ORDER_MARCH && e.has<SoldierFormationTarget>()) {
-            const auto &st = e.get<SoldierFormationTarget>();
-            e.set<MovementOrder>({tx + st.target_x, tz + st.target_z, false});
-          } else if (otype == ORDER_FIRE) {
-            e.set<FireOrder>({tx, tz});
-          }
-        });
+            if (otype == ORDER_MARCH && e.has<SoldierFormationTarget>()) {
+              const auto &st = e.get<SoldierFormationTarget>();
+              e.set<MovementOrder>({(float)(tx + st.target_x),
+                                    (float)(tz + st.target_z), false});
+            } else if (otype == ORDER_FIRE) {
+              e.set<FireOrder>({tx, tz});
+            }
+          });
+        }
         order.type = ORDER_NONE;
       }
     }
@@ -169,6 +261,14 @@ void MusketServer::_bind_methods() {
   ClassDB::bind_method(
       D_METHOD("order_charge", "team_id", "target_x", "target_z"),
       &MusketServer::order_charge);
+
+  // M7.5: Fire Discipline + Formation API
+  ClassDB::bind_method(
+      D_METHOD("order_fire_discipline", "battalion_id", "discipline_enum"),
+      &MusketServer::order_fire_discipline);
+  ClassDB::bind_method(
+      D_METHOD("order_formation", "battalion_id", "shape_enum"),
+      &MusketServer::order_formation);
 }
 
 void MusketServer::_ready() {
@@ -249,94 +349,74 @@ void MusketServer::spawn_test_battalion(int count, float center_x,
   auto &bat = musket::get_battalion(bat_id);
   bat.active = true;
 
-  int cols = 20;
-  float spacing = 1.5f;
+  // M7.5: True Napoleonic Line — 3 ranks deep (§12.1)
+  constexpr int RANKS = 3;
+  constexpr float SP_X = 0.8f; // 0.8m shoulder-to-shoulder
+  constexpr float SP_Z = 1.2f; // 1.2m depth between ranks
+  int cols = (int)std::ceil((float)count / RANKS);
+
+  // M7.5: Set initial OBB geometry for this battalion
+  auto &mb = g_macro_battalions[bat_id % MAX_BATTALIONS];
+  mb.dir_x = 0.0f;
+  mb.dir_z = -1.0f;                        // Facing -Z (Godot forward)
+  mb.ext_w = (cols * SP_X) / 2.0f + 2.0f;  // Half-width + 2m buffer
+  mb.ext_d = (RANKS * SP_Z) / 2.0f + 2.0f; // Half-depth + 2m buffer
+
+  // Center offsets for perfectly centering the formation
+  float start_x = center_x - ((cols - 1) * SP_X) / 2.0f;
+  float start_z = center_z - ((RANKS - 1) * SP_Z) / 2.0f;
+
+  int center_col = cols / 2;
 
   for (int i = 0; i < count; i++) {
-    int row = i / cols;
-    int col = i % cols;
+    int row = i % RANKS; // 0=Front, 1=Middle, 2=Rear
+    int col = i / RANKS; // 0..166
 
-    float x = center_x + (col - cols / 2) * spacing;
-    float z = center_z + row * spacing;
+    float x = start_x + col * SP_X;
+    float z = start_z + row * SP_Z;
 
-    // Small random jitter so they don't look robotic
-    float jx = ((float)(std::rand() % 100) / 100.0f - 0.5f) * 0.3f;
-    float jz = ((float)(std::rand() % 100) / 100.0f - 0.5f) * 0.3f;
+    // Micro-jitter to avoid robotic grid
+    float jx = ((float)(std::rand() % 100) / 100.0f - 0.5f) * 0.15f;
+    float jz = ((float)(std::rand() % 100) / 100.0f - 0.5f) * 0.15f;
 
     // Allocate a stable rendering slot
     uint32_t mm_slot = bat.alloc_slot();
 
-    ecs.entity()
-        .set<Position>({x + jx, z + jz})
-        .set<Velocity>({0.0f, 0.0f})
-        .set<SoldierFormationTarget>({x, z, 50.0f, 2.0f})
-        .set<MovementStats>({4.0f, 8.0f})
-        .set<TeamId>({(uint8_t)team_id})
-        .set<BattalionId>({bat_id})
-        .set<MusketState>({0.0f, 30, 13})
-        .set<FormationDefense>({0.2f}) // Line formation by default
-        .set<RenderSlot>({bat_id, mm_slot})
-        .add<IsAlive>();
-  }
+    auto e = ecs.entity()
+                 .set<Position>({x + jx, z + jz})
+                 .set<Velocity>({0.0f, 0.0f})
+                 .set<SoldierFormationTarget>({(double)x,
+                                               (double)z,
+                                               50.0f,
+                                               2.0f,
+                                               0.0f,
+                                               -1.0f, // Face forward (-Z)
+                                               true,
+                                               (uint8_t)row,
+                                               {}})
+                 .set<MovementStats>({4.0f, 8.0f})
+                 .set<TeamId>({(uint8_t)team_id})
+                 .set<BattalionId>({bat_id})
+                 .set<MusketState>(
+                     {0.0f, 30, 13}) // Trap 28: no stagger, all start loaded
+                 .set<FormationDefense>({0.2f}) // Line formation by default
+                 .set<RenderSlot>({bat_id, mm_slot})
+                 .add<IsAlive>();
 
-  // M7: Spawn command network entities (1 each per battalion)
-  // Flag Bearer — center of formation
-  {
-    float fx = center_x;
-    float fz = center_z;
-    uint32_t mm_slot = bat.alloc_slot();
-    ecs.entity()
-        .set<Position>({fx, fz})
-        .set<Velocity>({0.0f, 0.0f})
-        .set<SoldierFormationTarget>({fx, fz, 50.0f, 2.0f})
-        .set<MovementStats>({4.0f, 8.0f})
-        .set<TeamId>({(uint8_t)team_id})
-        .set<BattalionId>({bat_id})
-        .set<MusketState>({0.0f, 0, 0}) // Flag bearer doesn't fire
-        .set<FormationDefense>({0.2f})
-        .set<RenderSlot>({bat_id, mm_slot})
-        .add<IsAlive>()
-        .add<FormationAnchor>();
-  }
-  // Drummer — behind center
-  {
-    float dx = center_x;
-    float dz = center_z + 3.0f;
-    uint32_t mm_slot = bat.alloc_slot();
-    ecs.entity()
-        .set<Position>({dx, dz})
-        .set<Velocity>({0.0f, 0.0f})
-        .set<SoldierFormationTarget>({dx, dz, 50.0f, 2.0f})
-        .set<MovementStats>({4.0f, 8.0f})
-        .set<TeamId>({(uint8_t)team_id})
-        .set<BattalionId>({bat_id})
-        .set<MusketState>({0.0f, 0, 0}) // Drummer doesn't fire
-        .set<FormationDefense>({0.2f})
-        .set<RenderSlot>({bat_id, mm_slot})
-        .add<IsAlive>()
-        .add<Drummer>();
-  }
-  // Officer — front of formation
-  {
-    float ox = center_x;
-    float oz = center_z - 2.0f;
-    uint32_t mm_slot = bat.alloc_slot();
-    ecs.entity()
-        .set<Position>({ox, oz})
-        .set<Velocity>({0.0f, 0.0f})
-        .set<SoldierFormationTarget>({ox, oz, 50.0f, 2.0f})
-        .set<MovementStats>({4.0f, 8.0f})
-        .set<TeamId>({(uint8_t)team_id})
-        .set<BattalionId>({bat_id})
-        .set<MusketState>({0.0f, 30, 13}) // Officer fires
-        .set<FormationDefense>({0.2f})
-        .set<RenderSlot>({bat_id, mm_slot})
-        .add<IsAlive>()
-        .add<ElevatedLOS>();
+    // M7.5: Embed command staff in center file (§12.2)
+    if (col == center_col) {
+      if (row == 0)
+        e.add<ElevatedLOS>(); // Officer: Front rank
+      if (row == 1)
+        e.add<FormationAnchor>(); // Flag: Middle rank (protected)
+      if (row == 2)
+        e.add<Drummer>(); // Drummer: Rear rank
+    }
   }
 
   UtilityFunctions::print("[MusketEngine] Battalion #", bat_id,
-                          " spawned: ", count, " soldiers + 3 command staff.");
+                          " spawned: ", count, " soldiers (3-rank line, ", cols,
+                          " files wide).");
 }
 
 void MusketServer::order_march(float target_x, float target_z) {
@@ -528,7 +608,8 @@ void MusketServer::spawn_test_cavalry(int count, float x, float z,
     ecs.entity()
         .set<Position>({cx + jx, cz + jz})
         .set<Velocity>({0.0f, 0.0f})
-        .set<SoldierFormationTarget>({cx, cz, 30.0f, 1.5f})
+        .set<SoldierFormationTarget>(
+            {(double)cx, (double)cz, 30.0f, 1.5f, 0.0f, -1.0f, false, 0, {}})
         .set<MovementStats>({4.0f, 12.0f}) // Walk 4, Charge 12
         .set<TeamId>({(uint8_t)team_id})
         .set<BattalionId>({bat_id})
@@ -628,6 +709,160 @@ void MusketServer::order_charge(int team_id, float target_x, float target_z) {
     UtilityFunctions::print(
         "[MusketEngine] Charge -> fallback coords (No enemies found)");
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// M7.5: FIRE DISCIPLINE + FORMATION API
+// ═══════════════════════════════════════════════════════════
+
+void MusketServer::order_fire_discipline(int battalion_id,
+                                         int discipline_enum) {
+  if (battalion_id < 0 || battalion_id >= MAX_BATTALIONS)
+    return;
+  if (discipline_enum < 0 || discipline_enum > 3)
+    return;
+
+  // Feed into M7 Drummer Latency Pipeline
+  g_pending_orders[battalion_id].type = ORDER_DISCIPLINE;
+  g_pending_orders[battalion_id].requested_discipline =
+      (uint8_t)discipline_enum;
+  g_pending_orders[battalion_id].delay =
+      g_macro_battalions[battalion_id].drummer_alive ? 2.0f : 8.0f;
+
+  UtilityFunctions::print("[MusketEngine] Fire discipline → bat ", battalion_id,
+                          " discipline=", discipline_enum);
+}
+
+void MusketServer::order_formation(int battalion_id, int shape_enum) {
+  if (battalion_id < 0 || battalion_id >= MAX_BATTALIONS)
+    return;
+
+  auto &mb = g_macro_battalions[battalion_id];
+  if (mb.alive_count == 0)
+    return;
+
+  FormationShape shape = (FormationShape)shape_enum;
+
+  // M7.5 §12.1: Formation geometry constants
+  constexpr float SP_X = 0.8f;
+  constexpr float SP_Z = 1.2f;
+  constexpr int RANKS = 3;
+
+  int N = mb.alive_count; // Includes command staff
+  float cx = mb.cx;
+  float cz = mb.cz;
+  float dir_x = mb.dir_x;
+  float dir_z = mb.dir_z;
+
+  // Calculate formation dimensions
+  int cols, ranks;
+  float defense, speed;
+  bool front_only_shoot = false;
+
+  if (shape == SHAPE_LINE) {
+    ranks = RANKS;
+    cols = (int)std::ceil((float)N / ranks);
+    defense = 0.2f;
+    speed = 4.0f;
+  } else if (shape == SHAPE_COLUMN) {
+    cols = 16; // 16-wide column
+    ranks = (int)std::ceil((float)N / cols);
+    defense = 0.5f;
+    speed = 6.0f;
+    front_only_shoot = true;
+  } else { // SHAPE_SQUARE
+    int per_side = (int)std::ceil((float)N / 4.0f);
+    cols = per_side;
+    ranks = per_side;
+    defense = 0.9f;
+    speed = 2.0f;
+    front_only_shoot = true;
+  }
+
+  // Update OBB extents (persistent)
+  mb.ext_w = (cols * SP_X) / 2.0f + 2.0f;
+  mb.ext_d = (ranks * SP_Z) / 2.0f + 2.0f;
+
+  // Universal rotation helper: local offset → global coordinates
+  auto rotate = [&](float lx, float lz, float &gx, float &gz) {
+    gx = -lx * dir_z - lz * dir_x;
+    gz = lx * dir_x - lz * dir_z;
+  };
+
+  // Trap 29: Running index inside ecs.each() — zero heap allocation
+  int slot = 0;
+  ecs.each([&](flecs::entity e, const BattalionId &b,
+               SoldierFormationTarget &tgt, FormationDefense &fd) {
+    if ((int)(b.id % MAX_BATTALIONS) != battalion_id || !e.has<IsAlive>())
+      return;
+
+    // Determine local offset based on shape
+    float ox = 0.0f, oz = 0.0f;
+    float local_aim_x = 0.0f, local_aim_z = -1.0f;
+    int r = 0;
+    bool can_shoot = true;
+
+    if (shape == SHAPE_LINE) {
+      r = slot % RANKS;
+      int c = slot / RANKS;
+      ox = (c - cols / 2) * SP_X;
+      oz = r * SP_Z;
+    } else if (shape == SHAPE_COLUMN) {
+      r = slot / cols;
+      int c = slot % cols;
+      ox = (c - cols / 2) * SP_X;
+      oz = r * SP_Z;
+      can_shoot = (r == 0); // Only front rank fires
+    } else {                // SHAPE_SQUARE
+      int side = slot % 4;
+      int pos_on_side = slot / 4;
+      int per_side = (int)std::ceil((float)N / 4.0f);
+      r = pos_on_side % RANKS;
+
+      float half = (per_side * SP_X) / 2.0f;
+      float depth = r * SP_Z;
+      if (side == 0) {
+        ox = (pos_on_side - per_side / 2) * SP_X;
+        oz = -half - depth;
+        local_aim_x = 0.0f;
+        local_aim_z = -1.0f;
+      } else if (side == 1) {
+        ox = half + depth;
+        oz = (pos_on_side - per_side / 2) * SP_X;
+        local_aim_x = 1.0f;
+        local_aim_z = 0.0f;
+      } else if (side == 2) {
+        ox = (pos_on_side - per_side / 2) * SP_X;
+        oz = half + depth;
+        local_aim_x = 0.0f;
+        local_aim_z = 1.0f;
+      } else {
+        ox = -half - depth;
+        oz = (pos_on_side - per_side / 2) * SP_X;
+        local_aim_x = -1.0f;
+        local_aim_z = 0.0f;
+      }
+      can_shoot = (r == 0); // Only outermost rank fires per face
+    }
+
+    // Rotate to global
+    float gx, gz, gax, gaz;
+    rotate(ox, oz, gx, gz);
+    rotate(local_aim_x, local_aim_z, gax, gaz);
+
+    tgt.target_x = (double)(cx + gx);
+    tgt.target_z = (double)(cz + gz);
+    tgt.face_dir_x = gax;
+    tgt.face_dir_z = gaz;
+    tgt.can_shoot = can_shoot;
+    tgt.rank_index = (uint8_t)r;
+    fd.defense = defense;
+
+    slot++;
+  });
+
+  UtilityFunctions::print("[MusketEngine] Formation → bat ", battalion_id,
+                          " shape=", shape_enum, " (", slot, " soldiers)");
 }
 
 } // namespace godot
