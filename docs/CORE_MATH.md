@@ -674,4 +674,64 @@ float score = true_dist_sq + (lateral_offset * lateral_offset * 5.0f);
 //   Conclusion:  Synchronized fire exploits the CA grid's per-tick accumulation
 ```
 
+### §12.8 Friendly Fire Prevention (Firing Arcs + OBB Collision)
+
+**Concept**: Two layers of protection using pure vector calculus. Zero physics raycasts, zero colliders.
+
+#### Micro: Per-Soldier Firing Arc (Dot Product)
+
+```cpp
+// Each soldier has face_dir_x, face_dir_z stored in SoldierFormationTarget
+// Geometry engine assigns these based on formation shape:
+//   Line:   all face (0, -1)  (forward)
+//   Square: face 0=(0,-1), face 1=(1,0), face 2=(0,1), face 3=(-1,0)
+
+// In VolleyFireSystem, when evaluating a potential target:
+float nx = tdx / dist;  // Normalized direction to target
+float nz = tdz / dist;
+float dot = nx * face_dir_x + nz * face_dir_z;
+
+if (dot < 0.5f) continue;  // 60° cone: physically impossible to twist further
+// dot = 1.0 → straight ahead → 100% accuracy
+// dot = 0.5 → 60° off-axis → 50% accuracy (awkward body twist)
+// dot < 0.0 → behind the soldier → impossible (Square can't self-fire)
+
+hit_chance *= dot;  // Accuracy penalty for angled shots
+```
+
+#### Macro: O(B) Friendly Battalion OBB Intersection
+
+```cpp
+// Each MacroBattalion stores an Oriented Bounding Box (OBB):
+//   dir_x, dir_z   = battalion facing vector
+//   ext_w           = half-width + 2m buffer
+//   ext_d           = half-depth + 2m buffer
+
+// OBB corners defined by 2 diagonals:
+float right_x = -dir_z * ext_w,  right_z =  dir_x * ext_w;
+float front_x =  dir_x * ext_d,  front_z =  dir_z * ext_d;
+// Diagonal 1: (cx - right - front) to (cx + right + front)
+// Diagonal 2: (cx + right - front) to (cx - right + front)
+
+// Segment intersection using CCW orientation test (zero sqrt):
+auto ccw = [](float ax, float az, float bx, float bz, float cx, float cz) {
+    return (cz-az)*(bx-ax) > (bz-az)*(cx-ax);
+};
+auto intersects = [&](float ax, float az, float bx, float bz,
+                      float cx, float cz, float dx, float dz) {
+    return ccw(ax,az,cx,cz,dx,dz) != ccw(bx,bz,cx,cz,dx,dz) &&
+           ccw(ax,az,bx,bz,cx,cz) != ccw(ax,az,bx,bz,dx,dz);
+};
+
+// For each potential enemy battalion, check all friendly OBBs:
+// if (intersects(shooter, enemy_centroid, diag1) || intersects(..., diag2))
+//     → BLOCKED. Skip this enemy battalion.
+```
+
+#### Emergent Behaviors (No Scripts Required)
+- **Hollow Square**: dot product of backward shot = -1.0 → auto-blocked
+- **Skirmisher Retreat**: OBB intersection blocks main line fire until skirmishers clear
+- **Oblique Fire**: dot = 0.7 (30° angle) → allowed but 70% accuracy → incentivizes wheeling parallel
+
+
 
