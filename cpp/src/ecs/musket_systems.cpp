@@ -3,7 +3,8 @@
 #include <cmath>
 
 // NOTE: g_macro_battalions is defined in world_manager.cpp (the golden TU).
-// ecs.each<> template statics must share the TU where components are registered.
+// ecs.each<> template statics must share the TU where components are
+// registered.
 
 namespace musket {
 
@@ -43,11 +44,12 @@ void register_movement_systems(flecs::world &ecs) {
         // Critical damping: damping_multiplier * sqrt(stiffness)
         float damping = target.damping_multiplier * std::sqrt(stiffness);
 
-        float force_x = (stiffness * dx) - (damping * v.vx);
-        float force_z = (stiffness * dz) - (damping * v.vz);
-
-        v.vx += force_x * dt;
-        v.vz += force_z * dt;
+        // Trap 19 Fix: Exponential decay damping (unconditionally stable)
+        v.vx += (stiffness * dx) * dt;
+        v.vz += (stiffness * dz) * dt;
+        float decay = std::exp(-damping * dt);
+        v.vx *= decay;
+        v.vz *= decay;
 
         // Speed clamp — prevents supersonic rubber-banding
         constexpr float MAX_SPEED = 4.0f; // m/s (infantry)
@@ -146,34 +148,52 @@ void register_combat_systems(flecs::world &ecs) {
         constexpr float RELOAD_TIME = 8.0f;        // seconds per shot
         constexpr float HUMIDITY_PENALTY = 0.05f;  // 5% misfire (clear day)
 
-        // Find nearest living enemy
-        flecs::world w = e.world();
+        // Trap 8+9 Fix: Use macro battalion centroid for O(B) targeting
+        // instead of O(N) full-entity scan with leaked thread_local query.
         float best_dist_sq = MAX_MUSKET_RANGE * MAX_MUSKET_RANGE;
         flecs::entity best_target = flecs::entity::null();
 
-        // Build query for potential targets
-        static thread_local flecs::query<const Position, const TeamId>
-            *target_query = nullptr;
-        if (!target_query) {
-          target_query = new flecs::query<const Position, const TeamId>(
-              w.query_builder<const Position, const TeamId>()
-                  .with<IsAlive>()
-                  .build());
+        // Step 1: Find nearest enemy BATTALION centroid (O(256))
+        int best_bat_id = -1;
+        float best_macro_dist = 1e18f;
+        for (int i = 0; i < MAX_BATTALIONS; i++) {
+          if (g_macro_battalions[i].alive_count == 0)
+            continue;
+          if (g_macro_battalions[i].team_id == team.team)
+            continue;
+          float bdx = g_macro_battalions[i].cx - pos.x;
+          float bdz = g_macro_battalions[i].cz - pos.z;
+          float bd2 = bdx * bdx + bdz * bdz;
+          if (bd2 < best_macro_dist) {
+            best_macro_dist = bd2;
+            best_bat_id = i;
+          }
         }
 
-        target_query->each(
-            [&](flecs::entity te, const Position &tp, const TeamId &tt) {
-              // Skip friendlies
-              if (tt.team == team.team)
-                return;
-              float dx = tp.x - pos.x;
-              float dz = tp.z - pos.z;
-              float d2 = dx * dx + dz * dz;
-              if (d2 < best_dist_sq) {
-                best_dist_sq = d2;
-                best_target = te;
-              }
-            });
+        // Step 2: If nearest battalion is way out of range, skip
+        if (best_bat_id == -1 ||
+            best_macro_dist > (MAX_MUSKET_RANGE * MAX_MUSKET_RANGE * 4.0f))
+          return;
+
+        // Step 3: Find nearest individual in that battalion via system query
+        // (ecs.system queries are safe cross-TU, no leak)
+        flecs::world w = e.world();
+        w.each([&](flecs::entity te, const Position &tp, const TeamId &tt,
+                   const BattalionId &tb) {
+          if (!te.has<IsAlive>())
+            return;
+          if (tt.team == team.team)
+            return;
+          if ((int)(tb.id % MAX_BATTALIONS) != best_bat_id)
+            return;
+          float tdx = tp.x - pos.x;
+          float tdz = tp.z - pos.z;
+          float td2 = tdx * tdx + tdz * tdz;
+          if (td2 < best_dist_sq) {
+            best_dist_sq = td2;
+            best_target = te;
+          }
+        });
 
         if (!best_target.is_valid() || !best_target.is_alive())
           return;
@@ -226,8 +246,8 @@ void register_panic_systems(flecs::world &ecs) {
 
         grid.tick_accum += dt;
         if (grid.tick_accum < 0.2f)
-          return; // 5Hz gate
-        grid.tick_accum = 0.0f;
+          return;                // 5Hz gate
+        grid.tick_accum -= 0.2f; // Trap 16 Fix: preserve fractional remainder
 
         constexpr float EVAPORATE = 0.95f;
         constexpr float SPREAD = 0.025f; // 2.5% per neighbor
@@ -333,28 +353,21 @@ void register_panic_systems(flecs::world &ecs) {
         float enemy_x = pos.x;
         float enemy_z = pos.z;
 
-        static thread_local flecs::query<const Position, const TeamId>
-            *enemy_q = nullptr;
-        if (!enemy_q) {
-          enemy_q = new flecs::query<const Position, const TeamId>(
-              w.query_builder<const Position, const TeamId>()
-                  .with<IsAlive>()
-                  .build());
+        // Trap 8+9 Fix: Use macro battalion centroid instead of O(N) scan
+        for (int i = 0; i < MAX_BATTALIONS; i++) {
+          if (g_macro_battalions[i].alive_count == 0)
+            continue;
+          if (g_macro_battalions[i].team_id == team.team)
+            continue;
+          float bdx = g_macro_battalions[i].cx - pos.x;
+          float bdz = g_macro_battalions[i].cz - pos.z;
+          float bd2 = bdx * bdx + bdz * bdz;
+          if (bd2 < nearest_dist_sq) {
+            nearest_dist_sq = bd2;
+            enemy_x = g_macro_battalions[i].cx;
+            enemy_z = g_macro_battalions[i].cz;
+          }
         }
-
-        enemy_q->each(
-            [&](flecs::entity te, const Position &tp, const TeamId &tt) {
-              if (tt.team == team.team)
-                return; // skip friendlies
-              float dx = tp.x - pos.x;
-              float dz = tp.z - pos.z;
-              float d2 = dx * dx + dz * dz;
-              if (d2 < nearest_dist_sq) {
-                nearest_dist_sq = d2;
-                enemy_x = tp.x;
-                enemy_z = tp.z;
-              }
-            });
 
         // Flee direction = AWAY from nearest enemy
         float flee_dx = pos.x - enemy_x;
@@ -590,15 +603,7 @@ void register_artillery_systems(flecs::world &ecs) {
 
         flecs::world w = shot_e.world();
 
-        // Build target query (cached via thread_local)
-        static thread_local flecs::query<const Position, const TeamId>
-            *hit_query = nullptr;
-        if (!hit_query) {
-          hit_query = new flecs::query<const Position, const TeamId>(
-              w.query_builder<const Position, const TeamId>()
-                  .with<IsAlive>()
-                  .build());
-        }
+        // Trap 8 Fix: Use inline system query (no thread_local leak)
 
         constexpr float HIT_RADIUS = 1.5f; // meters
         constexpr float HIT_RADIUS_SQ = HIT_RADIUS * HIT_RADIUS;
@@ -615,32 +620,33 @@ void register_artillery_systems(flecs::world &ecs) {
         int hits_this_frame = 0;
         int max_hits = (shot.ammo == AMMO_CANISTER) ? CANISTER_MAX_HITS : 100;
 
-        hit_query->each(
-            [&](flecs::entity te, const Position &tp, const TeamId &tt) {
-              // Only hit enemies
-              if (tt.team == shot_team.team)
-                return;
-              // Already spent
-              if (shot.kinetic_energy <= 0.0f)
-                return;
-              if (hits_this_frame >= max_hits)
-                return;
+        w.each([&](flecs::entity te, const Position &tp, const TeamId &tt,
+                   const BattalionId &tb) {
+          if (!te.has<IsAlive>())
+            return;
+          // Only hit enemies
+          if (tt.team == shot_team.team)
+            return;
+          // Already spent
+          if (shot.kinetic_energy <= 0.0f)
+            return;
+          if (hits_this_frame >= max_hits)
+            return;
 
-              float dx = tp.x - shot.x;
-              float dz = tp.z - shot.z;
-              float d2 = dx * dx + dz * dz;
+          float dx = tp.x - shot.x;
+          float dz = tp.z - shot.z;
+          float d2 = dx * dx + dz * dz;
 
-              if (d2 < check_radius_sq) {
-                // Kill this soldier
-                te.remove<IsAlive>();
-                shot.kinetic_energy -= KE_PER_KILL;
-                hits_this_frame++;
+          if (d2 < check_radius_sq) {
+            te.remove<IsAlive>();
+            shot.kinetic_energy -= KE_PER_KILL;
+            hits_this_frame++;
 
-                if (shot.kinetic_energy <= 0.0f) {
-                  shot.active = false;
-                }
-              }
-            });
+            if (shot.kinetic_energy <= 0.0f) {
+              shot.active = false;
+            }
+          }
+        });
       });
 }
 

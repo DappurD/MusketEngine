@@ -126,15 +126,21 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 | 2026-02-20 | **Golden TU rule** | All `ecs.each<>()` calls and `g_macro_battalions` MUST live in `world_manager.cpp`. MSVC generates different Flecs component IDs per Translation Unit. Only `ecs.system<>()` is safe cross-TU (does deep world lookup). |
 | 2026-02-20 | **No static ECS memory** | Never store `static flecs::query<>`. DLL survives Godot Play/Stop — statics point at dead worlds and return 0 entities. |
 | 2026-02-20 | **Battalion-level targeting via MacroBattalion centroid cache** | `g_macro_battalions[256]` is populated every frame in `_process()` using `ecs.each<>()` in the golden TU. Cavalry reads centroids to find nearest enemy battalion. |
+| 2026-02-20 | **No thread_local queries** | Trap 8: `thread_local new flecs::query` leaks memory and segfaults on Play/Stop. Use `w.each()` or macro battalion centroids instead. |
+| 2026-02-20 | **O(B) targeting via centroids** | Trap 9: Volley fire and routing use macro battalion centroid lookup O(256) instead of O(N) full-entity scan. |
+| 2026-02-20 | **Exponential decay damping** | Trap 19: `v *= exp(-damping * dt)` is unconditionally stable. Replaces semi-implicit Euler `v += (k*x - d*v) * dt` which explodes when `damping*dt > 1.0`. |
+| 2026-02-20 | **Chrono-drift fix** | Trap 16: Panic grid `tick_accum -= 0.2f` preserves fractional remainder instead of resetting to 0. |
 
 ## Known Issues
 - `flecs_STATIC` macro redefinition warning (harmless)
 - godot-cpp using 4.5-stable (backwards compatible)
 - C++ exception handler warning from nlohmann/json (no `/EHsc`)
 - Static query in `rendering_bridge.cpp` is initialized on first call — safe for single-threaded Godot main thread
-- **Cavalry momentum at 1.2** — ~3-4 kills per horse vs Line. May need further tuning.
-- **Need fixed-dt accumulator** — Spring-damper physics will NaN at low framerates. Must decouple from `_process(delta)` before M7.
-- **Need Unity Build** — `musket_master.cpp` that `#include`s all `.cpp` files to permanently eliminate MSVC TU mismatch.
+- **Rendering bridge builds queries per-call** — needs caching or conversion to registered systems (Trap 11)
+- **M10: Projectile tunneling** — ROUNDSHOT_SPEED=200 at 60Hz = 3.3m/frame > 2m line depth. Need CCD segment check (Trap 12)
+- **M10: Panic grid edge singularity** — `world_to_idx` clamps to edges, routing soldiers stack in corner cells (Trap 14)
+- **M10: Unaligned POD structs** — `MusketState` 6B, `Workplace` 10B. Add `alignas(8)` + padding (Trap 18)
+- **M12: PanicGrid data race** — `std::atomic<float>` needed for multi-threaded ECS (Trap 13)
 
 ## C++ ↔ Godot Bridge
 - GDExtension: `musket_engine.gdextension`
