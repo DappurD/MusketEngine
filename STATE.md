@@ -17,7 +17,7 @@
 | Project structure | ✅ Ready | `project.godot`, `musket_engine.gdextension` |
 | GDExtension boilerplate | ✅ Compiling | `cpp/src/register_types.cpp/.h` |
 | ECS components (all POD) | ✅ Written | `cpp/src/ecs/musket_components.h` |
-| SCons build | ✅ Working | `cpp/SConstruct` |
+| SCons build | ✅ Unity Build | `cpp/SConstruct`, `cpp/src/ecs/musket_master.cpp` |
 | godot-cpp | ✅ Submodule @ `godot-4.5-stable` | `cpp/godot-cpp/` |
 | Flecs | ✅ Vendored (header-only) | `cpp/flecs/flecs.h/.c` |
 | nlohmann/json | ✅ Vendored (header-only) | `cpp/thirdparty/json.hpp` |
@@ -148,11 +148,12 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 - Entry symbol: `musket_engine_init`
 - Registered class: `MusketServer` (Node), 3 methods bound via ClassDB
 - Build: `python -m SCons platform=windows target=template_debug` in `cpp/`
+- **Architecture**: Unity Build — only `register_types.cpp` + `musket_master.cpp` are compiled
 - Output: `bin/musket_engine.dll`
 
 ## Immediate Next Step
 1. ~~M1-M6~~ ✅ DONE
-2. **Implement fixed-dt accumulator** — Decouple Flecs tick from Godot `_process(delta)`
-3. **Implement Unity Build** — Create `musket_master.cpp` to eliminate TU mismatch permanently
+2. ~~Unity Build~~ ✅ DONE
+3. ~~Trap fixes 8, 9, 16, 19~~ ✅ DONE
 4. **Team color shader** — reads `INSTANCE_CUSTOM.g` for team-based albedo
 5. Begin **M7: Command Network**

@@ -33,11 +33,14 @@ ecs.system<Position, Velocity, const SoldierFormationTarget>("MusketSpringDamper
             float stiffness = target[i].base_stiffness;
             float damping = target[i].damping_multiplier * std::sqrt(stiffness);
 
-            float force_x = (stiffness * dx) - (damping * v[i].vx);
-            float force_z = (stiffness * dz) - (damping * v[i].vz);
-
-            v[i].vx += force_x * dt;
-            v[i].vz += force_z * dt;
+            // Trap 19 Fix: Exponential decay damping (unconditionally stable)
+            // Old semi-implicit Euler: v += (k*x - d*v) * dt explodes when damping*dt > 1.0
+            // New: apply spring force, then analytically decay velocity
+            v[i].vx += (stiffness * dx) * dt;
+            v[i].vz += (stiffness * dz) * dt;
+            float decay = std::exp(-damping * dt);
+            v[i].vx *= decay;
+            v[i].vz *= decay;
 
             // Supersonic Rubber-Banding Clamp (Max Sprint Speed)
             const float MAX_SPEED = 4.0f; // 12.0f for Cavalry Charge
