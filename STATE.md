@@ -3,7 +3,7 @@
 > This file is the AI agent's external memory. Before starting any new task, **read this file** and `docs/GDD.md`. After completing a task, **update this file**.
 
 ## Current Phase
-**Phase 1: Combat Prototype** — M0.5 ✅, M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅. All tested 2026-02-20.
+**Phase 1: Combat Prototype** — M0.5 ✅, M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅, M7 ✅. All tested 2026-02-21.
 
 ## Project Identity
 - **Game**: The Musket Engine — Neuro-Symbolic Napoleonic War & Economy Simulator
@@ -94,8 +94,15 @@
 | `cpp/src/ecs/world_manager.cpp` | Battalion API, `spawn_test_cavalry()`, `order_charge()` (direction lock) |
 | `res/scripts/test_bed.gd` | Battalion rendering via `multimesh_set_buffer()`, V toggle, C charge |
 
+### M7 Files
+| File | Purpose |
+|---|---|
+| `cpp/src/ecs/musket_components.h` | `Drummer` tag, `PendingOrder` struct, `OrderType` enum, expanded `MacroBattalion` (flag/drummer/officer/cohesion) |
+| `cpp/src/ecs/world_manager.cpp` | `g_pending_orders[256]`, centroid pass detects M7 tags, flag cohesion decay, order delay pipeline, command staff spawning |
+| `cpp/src/ecs/musket_systems.cpp` | SpringDamperPhysics flag_cohesion, drummer speed buff, officer blind fire, DrummerPanicCleanseSystem |
+
 ## What Is NOT Built Yet
-- M7: Command Network
+- M8: LLM General (Battle Commander + State Compressor)
 - M8-M14: LLM General, Economy
 - **M15-M18: Urbanism & Siege** — full voxel engine
 - M19-M22: Weather, Night, Audio, Cartographer

@@ -15,17 +15,23 @@
 // are registered to get the correct IDs (MSVC TU mismatch rule).
 // ═══════════════════════════════════════════════════════════════
 MacroBattalion g_macro_battalions[MAX_BATTALIONS];
+PendingOrder g_pending_orders[MAX_BATTALIONS];
 
 static void compute_battalion_centroids(flecs::world &ecs) {
-  // 1. Zero the cache
+  float dt = ecs.get_info()->delta_time;
+
+  // 1. Zero TRANSIENT data only (Trap 23: preserve flag_cohesion)
   for (int i = 0; i < MAX_BATTALIONS; i++) {
     g_macro_battalions[i].cx = 0.0f;
     g_macro_battalions[i].cz = 0.0f;
     g_macro_battalions[i].alive_count = 0;
     g_macro_battalions[i].team_id = 999;
+    g_macro_battalions[i].flag_alive = false;
+    g_macro_battalions[i].drummer_alive = false;
+    g_macro_battalions[i].officer_alive = false;
   }
 
-  // 2. Accumulate — ecs.each<> uses the correct IDs in this TU
+  // 2. Accumulate + detect M7 command network tags
   ecs.each([](flecs::entity e, const Position &p, const BattalionId &b,
               const TeamId &t) {
     if (!e.has<IsAlive>())
@@ -35,24 +41,77 @@ static void compute_battalion_centroids(flecs::world &ecs) {
     g_macro_battalions[id].cz += p.z;
     g_macro_battalions[id].alive_count++;
     g_macro_battalions[id].team_id = t.team;
+
+    // M7: Tag detection
+    if (e.has<FormationAnchor>())
+      g_macro_battalions[id].flag_alive = true;
+    if (e.has<Drummer>())
+      g_macro_battalions[id].drummer_alive = true;
+    if (e.has<ElevatedLOS>())
+      g_macro_battalions[id].officer_alive = true;
   });
 
-  // 3. Finalize
+  // 3. Finalize centroids + M7 pipelines
   for (int i = 0; i < MAX_BATTALIONS; i++) {
-    if (g_macro_battalions[i].alive_count > 0) {
-      g_macro_battalions[i].cx /= (float)g_macro_battalions[i].alive_count;
-      g_macro_battalions[i].cz /= (float)g_macro_battalions[i].alive_count;
+    auto &mb = g_macro_battalions[i];
+
+    // Trap 24: Shatter command if almost wiped out
+    if (mb.alive_count > 0 && mb.alive_count < 10) {
+      mb.flag_alive = mb.drummer_alive = mb.officer_alive = false;
+    }
+
+    if (mb.alive_count > 0) {
+      mb.cx /= (float)mb.alive_count;
+      mb.cz /= (float)mb.alive_count;
+
+      // Phase A: Flag cohesion decay (16s to 0.2 floor)
+      if (mb.flag_alive) {
+        mb.flag_cohesion = std::min(1.0f, mb.flag_cohesion + dt * 0.1f);
+      } else {
+        mb.flag_cohesion = std::max(0.2f, mb.flag_cohesion - dt * 0.05f);
+      }
+    }
+
+    // Phase D: Order Delay Pipeline
+    auto &order = g_pending_orders[i];
+    if (order.type != ORDER_NONE) {
+      order.delay -= dt;
+      if (order.delay <= 0.0f) {
+        OrderType otype = order.type;
+        float tx = order.target_x;
+        float tz = order.target_z;
+
+        // Dispatch to ECS entities in this battalion
+        ecs.each([&](flecs::entity e, const BattalionId &b) {
+          if ((int)(b.id % MAX_BATTALIONS) != i || !e.has<IsAlive>())
+            return;
+          if (e.has<CavalryState>()) {
+            const auto &cs = e.get<CavalryState>();
+            if (cs.state_flags != 0)
+              return;
+          }
+
+          if (otype == ORDER_MARCH && e.has<SoldierFormationTarget>()) {
+            const auto &st = e.get<SoldierFormationTarget>();
+            e.set<MovementOrder>({tx + st.target_x, tz + st.target_z, false});
+          } else if (otype == ORDER_FIRE) {
+            e.set<FireOrder>({tx, tz});
+          }
+        });
+        order.type = ORDER_NONE;
+      }
     }
   }
 
-  // 4. Diagnostic (every 2s at 60Hz)
+  // Diagnostic (every 2s at 60Hz)
   static int tick = 0;
   if (tick++ % 120 == 0) {
     godot::UtilityFunctions::print(
         "[CENTROIDS] Bat0: alive=", g_macro_battalions[0].alive_count,
-        " cx=", g_macro_battalions[0].cx, " cz=", g_macro_battalions[0].cz,
-        " | Bat1: alive=", g_macro_battalions[1].alive_count,
-        " cx=", g_macro_battalions[1].cx, " cz=", g_macro_battalions[1].cz);
+        " flag=", g_macro_battalions[0].flag_alive,
+        " drum=", g_macro_battalions[0].drummer_alive,
+        " cohesion=", g_macro_battalions[0].flag_cohesion,
+        " | Bat1: alive=", g_macro_battalions[1].alive_count);
   }
 }
 
@@ -148,6 +207,11 @@ void MusketServer::init_ecs() {
   ecs.component<ChargeOrder>("ChargeOrder");
   ecs.component<Disordered>("Disordered");
 
+  // M7: Command Network components
+  ecs.component<FormationAnchor>("FormationAnchor");
+  ecs.component<Drummer>("Drummer");
+  ecs.component<ElevatedLOS>("ElevatedLOS");
+
   // Register M2 movement systems
   musket::register_movement_systems(ecs);
 
@@ -215,40 +279,99 @@ void MusketServer::spawn_test_battalion(int count, float center_x,
         .add<IsAlive>();
   }
 
+  // M7: Spawn command network entities (1 each per battalion)
+  // Flag Bearer — center of formation
+  {
+    float fx = center_x;
+    float fz = center_z;
+    uint32_t mm_slot = bat.alloc_slot();
+    ecs.entity()
+        .set<Position>({fx, fz})
+        .set<Velocity>({0.0f, 0.0f})
+        .set<SoldierFormationTarget>({fx, fz, 50.0f, 2.0f})
+        .set<MovementStats>({4.0f, 8.0f})
+        .set<TeamId>({(uint8_t)team_id})
+        .set<BattalionId>({bat_id})
+        .set<MusketState>({0.0f, 0, 0}) // Flag bearer doesn't fire
+        .set<FormationDefense>({0.2f})
+        .set<RenderSlot>({bat_id, mm_slot})
+        .add<IsAlive>()
+        .add<FormationAnchor>();
+  }
+  // Drummer — behind center
+  {
+    float dx = center_x;
+    float dz = center_z + 3.0f;
+    uint32_t mm_slot = bat.alloc_slot();
+    ecs.entity()
+        .set<Position>({dx, dz})
+        .set<Velocity>({0.0f, 0.0f})
+        .set<SoldierFormationTarget>({dx, dz, 50.0f, 2.0f})
+        .set<MovementStats>({4.0f, 8.0f})
+        .set<TeamId>({(uint8_t)team_id})
+        .set<BattalionId>({bat_id})
+        .set<MusketState>({0.0f, 0, 0}) // Drummer doesn't fire
+        .set<FormationDefense>({0.2f})
+        .set<RenderSlot>({bat_id, mm_slot})
+        .add<IsAlive>()
+        .add<Drummer>();
+  }
+  // Officer — front of formation
+  {
+    float ox = center_x;
+    float oz = center_z - 2.0f;
+    uint32_t mm_slot = bat.alloc_slot();
+    ecs.entity()
+        .set<Position>({ox, oz})
+        .set<Velocity>({0.0f, 0.0f})
+        .set<SoldierFormationTarget>({ox, oz, 50.0f, 2.0f})
+        .set<MovementStats>({4.0f, 8.0f})
+        .set<TeamId>({(uint8_t)team_id})
+        .set<BattalionId>({bat_id})
+        .set<MusketState>({0.0f, 30, 13}) // Officer fires
+        .set<FormationDefense>({0.2f})
+        .set<RenderSlot>({bat_id, mm_slot})
+        .add<IsAlive>()
+        .add<ElevatedLOS>();
+  }
+
   UtilityFunctions::print("[MusketEngine] Battalion #", bat_id,
-                          " spawned: ", count,
-                          " entities with stable MM slots.");
+                          " spawned: ", count, " soldiers + 3 command staff.");
 }
 
 void MusketServer::order_march(float target_x, float target_z) {
   UtilityFunctions::print("[MusketEngine] March order → (", target_x, ", ",
                           target_z, ")");
 
-  auto q = ecs.query_builder<const Position>().with<IsAlive>().build();
-
-  q.each([&](flecs::entity e, const Position &p) {
-    if (e.has<SoldierFormationTarget>()) {
-      const SoldierFormationTarget &t = e.get<SoldierFormationTarget>();
-      e.set<MovementOrder>(
-          {target_x + t.target_x, target_z + t.target_z, false});
-    }
-  });
+  // M7: Route through pending order pipeline for ALL battalions
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    if (g_macro_battalions[i].alive_count == 0)
+      continue;
+    g_pending_orders[i].type = ORDER_MARCH;
+    g_pending_orders[i].target_x = target_x;
+    g_pending_orders[i].target_z = target_z;
+    // Last-write-wins with penalty reset (Deep Think ruling #3)
+    g_pending_orders[i].delay =
+        g_macro_battalions[i].drummer_alive ? 2.0f : 8.0f;
+  }
 }
 
 void MusketServer::order_fire(int team_id, float target_x, float target_z) {
   UtilityFunctions::print("[MusketEngine] Fire order (team ", team_id, ") → (",
                           target_x, ", ", target_z, ")");
 
-  auto q = ecs.query_builder<const TeamId>()
-               .with<IsAlive>()
-               .with<MusketState>()
-               .build();
-
-  q.each([&](flecs::entity e, const TeamId &t) {
-    if (t.team == (uint8_t)team_id) {
-      e.set<FireOrder>({target_x, target_z});
-    }
-  });
+  // M7: Route through pending order pipeline for matching team
+  for (int i = 0; i < MAX_BATTALIONS; i++) {
+    if (g_macro_battalions[i].alive_count == 0)
+      continue;
+    if (g_macro_battalions[i].team_id != (uint32_t)team_id)
+      continue;
+    g_pending_orders[i].type = ORDER_FIRE;
+    g_pending_orders[i].target_x = target_x;
+    g_pending_orders[i].target_z = target_z;
+    g_pending_orders[i].delay =
+        g_macro_battalions[i].drummer_alive ? 2.0f : 8.0f;
+  }
 }
 
 int MusketServer::get_alive_count(int team_id) const {

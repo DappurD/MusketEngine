@@ -101,15 +101,25 @@ struct FormationDefense {
 }; // 4 bytes
 
 // ─── Cavalry: MacroBattalion Centroid Cache (Deep Think #4) ──
-// Pre-computed per-frame. O(1) lookups for charge targeting.
+// Pre-computed per-frame. O(1) lookups for charge targeting
+// AND M7 command network state (flag/drummer/officer alive).
 struct MacroBattalion {
+  // ── Transient State (zeroed every frame in centroid pass) ──
   float cx = 0.0f;
   float cz = 0.0f;
   int alive_count = 0;
-  uint32_t team_id = 999; // Added so cavalry knows who to target safely
-}; // 16 bytes
+  uint32_t team_id = 999;
 
-// EXTERN: declared here, defined ONCE in musket_systems.cpp
+  // ── M7 Command Network (zeroed every frame, set during scan) ──
+  bool flag_alive = false;
+  bool drummer_alive = false;
+  bool officer_alive = false;
+
+  // ── Persistent State (DO NOT zero in centroid pass — Trap 23) ──
+  float flag_cohesion = 1.0f; // Decay: 16s to 0.2 floor when flag dies
+};
+
+// EXTERN: declared here, defined ONCE in world_manager.cpp
 constexpr int MAX_BATTALIONS = 256;
 extern MacroBattalion g_macro_battalions[MAX_BATTALIONS];
 
@@ -128,12 +138,28 @@ struct RenderSlot {
   uint32_t mm_slot;
 }; // 8 bytes
 
-// ─── Combat: Command Network ─────────────────────────────
-struct FormationAnchor {}; // Flag bearer tag
+// ─── Combat: Command Network (M7 — GDD §5.4) ────────────
+struct FormationAnchor {}; // Flag bearer tag — death decays cohesion
+struct Drummer {};         // Drum tag — order latency + panic cleanse
 struct OrderLatency {
   float delay_seconds;
 }; // Drummer: 2.0 alive, 8.0 dead
-struct ElevatedLOS {}; // Officer tag
+struct ElevatedLOS {}; // Officer tag — death blinds targeting
+
+// ─── M7: Order Delay Pipeline (Trap 22: global, not per-entity) ──
+enum OrderType : uint8_t {
+  ORDER_NONE = 0,
+  ORDER_MARCH,
+  ORDER_FIRE,
+  ORDER_CHARGE
+};
+struct PendingOrder {
+  OrderType type = ORDER_NONE;
+  float target_x = 0.0f;
+  float target_z = 0.0f;
+  float delay = 0.0f;
+};
+extern PendingOrder g_pending_orders[MAX_BATTALIONS];
 
 // ─── Combat: Medical ──────────────────────────────────────
 struct Downed {

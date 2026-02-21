@@ -21,14 +21,11 @@ void register_movement_systems(flecs::world &ecs) {
   //       Flecs v4.1.4 system_builder only has .each().
   //       Math is identical; only the lambda signature changed.
   // ═════════════════════════════════════════════════════════════
-  ecs.system<Position, Velocity, const SoldierFormationTarget>(
-         "SpringDamperPhysics")
+  ecs.system<Position, Velocity, const SoldierFormationTarget,
+             const BattalionId>("SpringDamperPhysics")
       .with<IsAlive>()
       .each([](flecs::entity e, Position &p, Velocity &v,
-               const SoldierFormationTarget &target) {
-        // ── CAVALRY AIRGAP ──────────────────────────────────
-        // Deep Think: "You cannot use an Attractor to simulate
-        // a Projectile." Skip charging/disordered cavalry.
+               const SoldierFormationTarget &target, const BattalionId &bat) {
         if (e.has<CavalryState>() && e.get<CavalryState>().state_flags != 0)
           return;
 
@@ -39,9 +36,12 @@ void register_movement_systems(flecs::world &ecs) {
         float dx = target.target_x - p.x;
         float dz = target.target_z - p.z;
 
-        // Stiffness is modified by Panic Grid before this runs
-        float stiffness = target.base_stiffness;
-        // Critical damping: damping_multiplier * sqrt(stiffness)
+        // M7 Phase A: Apply flag cohesion decay (Trap 21: floor at 0.2)
+        uint32_t bat_id = bat.id % MAX_BATTALIONS;
+        float stiffness =
+            target.base_stiffness * g_macro_battalions[bat_id].flag_cohesion;
+        if (e.has<Routing>())
+          stiffness = 0.0f; // Routing orthogonal override
         float damping = target.damping_multiplier * std::sqrt(stiffness);
 
         // Trap 19 Fix: Exponential decay damping (unconditionally stable)
@@ -85,6 +85,14 @@ void register_movement_systems(flecs::world &ecs) {
         constexpr float MARCH_SPEED = 3.0f;  // m/s (march pace)
         constexpr float ARRIVAL_DIST = 1.0f; // Close enough
 
+        // M7 Phase B: Drummer speed buff (+10%)
+        uint32_t bat_id = 0;
+        if (e.has<BattalionId>()) {
+          bat_id = e.get<BattalionId>().id % MAX_BATTALIONS;
+        }
+        float speed_mult =
+            g_macro_battalions[bat_id].drummer_alive ? 1.10f : 1.0f;
+
         // Direction from current slot to order destination
         float dx = order.target_x - target.target_x;
         float dz = order.target_z - target.target_z;
@@ -96,7 +104,7 @@ void register_movement_systems(flecs::world &ecs) {
         }
 
         float dist = std::sqrt(dist_sq);
-        float step = MARCH_SPEED * dt;
+        float step = MARCH_SPEED * speed_mult * dt;
         if (step > dist)
           step = dist; // Don't overshoot
 
@@ -198,10 +206,23 @@ void register_combat_systems(flecs::world &ecs) {
         if (!best_target.is_valid() || !best_target.is_alive())
           return;
 
-        // Calculate hit chance (CORE_MATH.md §2)
+        // M7 Phase C: Officer blind fire — dead officer = 40m range, 0.3x
+        // accuracy
+        uint32_t my_bat_id = 0;
+        if (e.has<BattalionId>()) {
+          my_bat_id = e.get<BattalionId>().id % MAX_BATTALIONS;
+        }
+        bool officer_alive = g_macro_battalions[my_bat_id].officer_alive;
+        float current_max_range = officer_alive ? MAX_MUSKET_RANGE : 40.0f;
+
         float dist = std::sqrt(best_dist_sq);
-        float hit_chance = BASE_ACCURACY * (1.0f - (dist / MAX_MUSKET_RANGE));
+        if (dist > current_max_range)
+          return;
+
+        float hit_chance = BASE_ACCURACY * (1.0f - (dist / current_max_range));
         hit_chance *= (1.0f - HUMIDITY_PENALTY);
+        if (!officer_alive)
+          hit_chance *= 0.3f; // Blind fire into smoke
 
         // Clamp to [0, 1]
         if (hit_chance < 0.0f)
@@ -405,6 +426,24 @@ void register_panic_systems(flecs::world &ecs) {
         grid.read_buf[t][idx] += 0.4f;
         if (grid.read_buf[t][idx] > 1.0f)
           grid.read_buf[t][idx] = 1.0f;
+      });
+
+  // ── System 7b: Drummer Panic Cleanse (M7) ────────────────
+  // GDD §5.4: Alive drummer injects -0.2 panic/tick at their cell.
+  ecs.system<const Position, const TeamId>("DrummerPanicCleanseSystem")
+      .with<Drummer>()
+      .with<IsAlive>()
+      .each([](flecs::entity e, const Position &pos, const TeamId &team) {
+        float dt = e.world().delta_time();
+        if (dt <= 0.0f)
+          return;
+
+        PanicGrid &grid = e.world().ensure<PanicGrid>();
+        int t = team.team % PanicGrid::TEAMS;
+        int idx = PanicGrid::world_to_idx(pos.x, pos.z);
+        grid.read_buf[t][idx] -= 0.2f * dt;
+        if (grid.read_buf[t][idx] < 0.0f)
+          grid.read_buf[t][idx] = 0.0f;
       });
 }
 
