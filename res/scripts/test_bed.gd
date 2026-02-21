@@ -41,16 +41,16 @@ const CAVALRY_POS := Vector3(-40, 0, -10)
 
 # Shared mesh + material for all soldier MultiMeshes
 var soldier_mesh: CapsuleMesh
-var soldier_mat: StandardMaterial3D
+var soldier_mat: ShaderMaterial
 
 
 func _ready() -> void:
-	# Create shared mesh
+	# Create shared mesh with team color shader
 	soldier_mesh = CapsuleMesh.new()
 	soldier_mesh.radius = 0.3
 	soldier_mesh.height = 1.8
-	soldier_mat = StandardMaterial3D.new()
-	soldier_mat.vertex_color_use_as_albedo = true
+	soldier_mat = ShaderMaterial.new()
+	soldier_mat.shader = load("res://res/shaders/team_color.gdshader")
 	soldier_mesh.material = soldier_mat
 
 	# ── Spawn units ──

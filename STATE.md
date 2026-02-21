@@ -130,7 +130,7 @@ The GDD is a **living document**. If a system needs a constant or behavior not y
 - C++ exception handler warning from nlohmann/json (no `/EHsc`)
 - Static query in `rendering_bridge.cpp` is initialized on first call — safe for single-threaded Godot main thread
 - **Cavalry slightly OP** — momentum 2.0 may need tuning down. Each horse kills ~6 against Line. Adjust the `2.0f` multiplier in `CavalryBallistics` system or cost formula in `CavalryImpact`.
-- **No team colors in battalion mode** — `use_colors` disabled for buffer stride match. Team coloring needs a shader reading `INSTANCE_CUSTOM`.
+- **Cavalry re-charge targets empty ground** — `order_charge` uses fixed coordinates. Second charge rides back through dead bodies. Needs nearest-living-enemy targeting or M7 command selection.
 
 ## C++ ↔ Godot Bridge
 - GDExtension: `musket_engine.gdextension`
