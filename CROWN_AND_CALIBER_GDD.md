@@ -170,6 +170,109 @@ All combat systems from M2-M7.5 are the foundation:
 - Formation cohesion decay (M7.5)
 - Routing state with spring-damper release (M4)
 
+### 6.2 The Bayonet Charge (4 Phases of Controlled Chaos)
+
+**Design Principle**: *Chaos must be an earned state (a breakdown of psychology), not a default state (a failure of the pathfinding engine).* When players complain about "blobbing" in other strategy games, they're complaining about engine chaos — where AI pathfinding gives up and soldiers clip into sloppy piles. What we want is **historical chaos** — where pristine geometric order violently unwinds into pure entropy, resolving brutally and quickly.
+
+Historical fact: bayonet wounds accounted for < 2% of Napoleonic casualties. Almost every time, one side broke and ran BEFORE contact. As Suvorov wrote: *"The bullet is a fool; the bayonet is a fine girl."*
+
+#### Phase 1: The Bow-Wave (Approach)
+Player clicks CHARGE. The engine:
+1. Sets `can_shoot = false` (fixes bayonets, no more volleys)
+2. Switches movement to dead sprint (max velocity, burns stamina)
+3. The charging battalion becomes a **forward-facing Fear Emitter** — injects massive panic into the CA grid ahead of it
+
+**The result**: As the screaming column closes distance, it pushes a terror bow-wave through the defender's panic grid. The defender has seconds to react: hold nerve and fire a point-blank volley, or break. If their panic crosses 0.65 before contact → the line shatters, routing without a single casualty. The charge succeeds through pure psychology.
+
+#### Phase 2: The Collision (Snapping the Springs)
+If the defenders hold and the column reaches their line:
+1. The instant hitboxes overlap, front-rank soldiers get `remove<SoldierFormationTarget>` + `add<MeleeScrum>`
+2. **MeleeScrum** replaces spring-damper formation physics with micro-flocking Boids: `Seek` (pull toward nearest enemy chest) + `Repel` (push away from friendly shoulders)
+3. Rear ranks KEEP their `SoldierFormationTarget` — they rigidly press forward, simulating the horrifying physical crush of a column attack
+
+**The visual**: The pristine rectangle instantly, violently collapses forward. Men surge like a fluid wave into the enemy line, creating a claustrophobic churning scrum at the impact point.
+
+#### Phase 3: The Meat Grinder (O(1) Lethality)
+No 1v1 matched fencing animations. Melee lethality is **catastrophic**:
+- Rapid O(1) math check: local density × momentum × (1 - fatigue) → kill probability per tick
+- VAT shaders switch to desperate, unstructured stabbing and musket-butt clubbing
+- 50 men can die in 10 seconds. Each death injects double panic (+0.8) into the local grid
+- The scrum is a ticking bomb — within 15-30 seconds, compounding death + exhaustion mathematically guarantees one side's morale collapses
+
+#### Phase 4: The Price of Chaos (Disordered State)
+**This is how we separate from Total War.** Chaos is easy to start, hard to stop.
+
+When the melee ends:
+1. Surviving soldiers get the `Disordered` tag
+2. **Disordered** units: cannot fire volleys, move at half speed, zero cavalry defense
+3. To recover: player issues "Reform" order → drummer beats Assembly → **15-20 agonizing seconds** as men untangle, find geometric slots, re-establish spring-damper physics
+4. `remove<MeleeScrum>` + `remove<Disordered>` + `add<SoldierFormationTarget>`
+
+**The tactical depth**: You shatter the enemy center with a charge — but if they have cavalry behind the trees, those Cuirassiers will hit your victorious, disordered mob and slaughter them to a man.
+
+#### ECS Components for Melee
+
+| Component | Size | Purpose |
+|-----------|------|---------|
+| `MeleeScrum` | 16B | Boids-style seek/repel targets, replaces formation physics |
+| `Disordered` | tag | Cannot shoot, half speed, vulnerable to cavalry |
+| `ChargingState` | 8B | Sprint timer, fear emission multiplier |
+
+### 6.3 The Butcher's Bill (Combat → Economy Feedback)
+
+Because combat and economy share the same ECS world, the TYPE of violence dictates the TYPE of trauma your city absorbs.
+
+| Combat Type | Wound Severity | Survival Rate | Citizen Returns As | Economic Impact |
+|-------------|---------------|---------------|-------------------|-----------------|
+| **Musket fire** (clean attrition) | Moderate | ~60% with surgeon | `Veteran` tag | **Boosted** productivity (military discipline) |
+| **Bayonet charge** (meatgrinder) | Catastrophic | ~20% with surgeon | `Amputee` tag | **Restricted** to light labor only |
+| **Cavalry ridden down** | Catastrophic | ~10% | `Amputee` tag | Same as above |
+
+**Veteran**: Returns to workforce with +15% productivity bonus. Can work any job. Military discipline carries over.
+
+**Amputee**: Cannot work heavy labor (mines, logging, blast furnaces). Can only perform light labor (tailoring, paperwork, teaching). Demands Surgical Tools from your supply chain.
+
+**The weight of the charge decision**: When you order the bayonet charge, you are willfully turning off your unit's ranged DPS, burning their stamina, and throwing them into a fluid simulation where you lose fine control. You are risking the *industrial future* of your city on 20 seconds of absolute, bloody chaos.
+
+### 6.4 Military Music (The Sonic Command Interface)
+
+Military music is NOT atmosphere — it is the **primary command-and-control interface** of the era. The drummer IS the unit's voice. When smoke blinds and cannon deafens, the drum is the only way a commander communicates with 200 men.
+
+#### Drum Signals as State-Change Triggers
+
+| Signal | Drum Pattern | ECS Effect |
+|--------|-------------|-----------|
+| **Reveille** | Fife & drum | Wake cycle begins (citizen routine) |
+| **The General** | Rapid drum | Strike camp, prepare to march |
+| **The Assembly** | Steady beat | `Reform` order — soldiers find geometric slots |
+| **To Arms (Rebato)** | Relentless rapid beating | State change: camp → combat readiness |
+| **The Charge** | Chaotic high-intensity | `ChargingState` activated, bayonets fixed |
+| **Fire** | Sharp flam rudiment | Volley timing — synchronized fire |
+| **The Retreat** | Distinct pattern | Orderly withdrawal, maintain formation |
+| **The Parley** | Rhythmic | Request ceasefire, flag of truce |
+
+#### If the Drummer Dies
+The drummer already exists in our M7 command network (`FormationAnchor` tag). Currently their death causes cohesion decay. With signal-based mechanics, drummer death should also:
+- **Disable coordinated volleys** — unit can only fire AT_WILL, never BY_RANK
+- **Slow Reform** — disordered state takes 2× longer to recover without the Assembly beat
+- **Reduce order responsiveness** — 2-3 second delay on all new orders
+
+#### National Faction Differences
+
+| Faction | Musical Tradition | Gameplay Effect |
+|---------|------------------|----------------|
+| **French** | *Batteries d'Ordonnance*, active drums during combat | Constant reload rhythm bonus, strongest charge morale |
+| **British** | Regimental bands → stretcher-bearers in battle | Musicians heal wounded during combat, Highland pipers boost charge |
+| **Prussian** | Rigid discipline, full wind-bands | Best formation recovery speed, fastest Reform |
+| **Russian** | Prussian-style + patriotic folk songs | Defensive morale bonus, soldiers sing during sieges |
+| **Ottoman** | Mehter bands — bass drums, cymbals, zurna | Massive fear emission to enemies, largest terror bow-wave |
+
+#### Sonic Fog of War
+In heavy smoke (post-volley), visual information degrades. Players locate their own units by **listening for the regiment's drum pattern**. Spatialized 3D audio (Wwise/FMOD) with vertical layering:
+- Low intensity: snare drum cadence only (marching)
+- Escalating: fifes, bass drums, cymbals layer in as engagement intensifies
+- The "frequency-band separation" between low drums and high fifes is historically why these instruments were chosen — they cut through different noise registers
+
 ---
 
 ## 7. Grand Strategy Layer
