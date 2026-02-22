@@ -23,6 +23,9 @@ void register_cavalry_systems(flecs::world &ecs);
 // M9: Economy (citizen movement, workplace logic, matchmaker, zeitgeist)
 void register_economy_systems(flecs::world &ecs);
 
+// M13-M14: Voxel (DDA collision, mutation, structural integrity, fortification)
+void register_voxel_systems(flecs::world &ecs);
+
 } // namespace musket
 
 #endif // MUSKET_SYSTEMS_H

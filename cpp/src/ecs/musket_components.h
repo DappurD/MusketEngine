@@ -2,6 +2,8 @@
 #define MUSKET_COMPONENTS_H
 
 #include <cstdint>
+#include <cstring>
+#include <vector>
 
 /**
  * The Musket Engine — ECS Component Definitions
@@ -451,6 +453,155 @@ enum ItemType : uint8_t {
   ITEM_SURGICAL_TOOL,
   ITEM_ALCOHOL,
   ITEM_COUNT
+};
+// ═══════════════════════════════════════════════════════════════
+// M13-M14: VOXEL INTEGRATION
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Voxel Materials ─────────────────────────────────────────
+enum VoxelMaterial : uint8_t {
+  VMAT_AIR = 0,
+  VMAT_EARTH = 1,    // Absorbs kinetic energy (sapping trenches)
+  VMAT_STONE = 2,    // High KE resistance, shatters into rubble
+  VMAT_WOOD = 3,     // Palisades, splinters, ignitable
+  VMAT_RUBBLE = 4,   // Traversable at movement cost, forms 45° ramps
+  VMAT_BEDROCK = 255 // Indestructible floor
+};
+
+// Material KE resistance (Joules absorbed per voxel)
+constexpr float VOXEL_KE_RESISTANCE[] = {
+    0.0f,     // AIR
+    5000.0f,  // EARTH
+    25000.0f, // STONE
+    3000.0f,  // WOOD
+    2000.0f,  // RUBBLE
+};
+
+// ─── The Chunk (4,160 Bytes, alignas(64)) ────────────────────
+constexpr int CHUNK_SIZE = 16;
+constexpr int CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE; // 4096
+
+struct alignas(64) VoxelChunk {
+  uint8_t voxels[CHUNK_VOLUME]; // Flat 1D array of materials (4KB)
+
+  // 64-Byte Metadata Header
+  uint16_t solid_count;        // Fast-skip for DDA/Meshing if 0
+  uint8_t dirty_mesh;          // Flagged for Godot rendering bridge
+  uint8_t dirty_flow;          // Flagged for M8 Flow Field thread
+  uint8_t needs_stability_bfs; // Flagged for Structural Integrity thread
+  uint8_t pad[59];             // Pad to exactly 4160 bytes
+};
+
+// ─── Sparse Voxel World (Singleton) ──────────────────────────
+// Trap 60: Only chunks with actual voxels are allocated from pool.
+// Trap 61: All world coords offset by +2048 to stay in positive int space.
+constexpr int MAP_CHUNKS_X = 256; // 4096m / 16
+constexpr int MAP_CHUNKS_Z = 256;
+constexpr int MAP_CHUNKS_Y = 8; // 128m / 16
+constexpr int TOTAL_MAP_CHUNKS =
+    MAP_CHUNKS_X * MAP_CHUNKS_Y * MAP_CHUNKS_Z; // 524,288
+constexpr int MAX_ACTIVE_CHUNKS = 65535;        // Pool limit (~272 MB)
+constexpr float VOXEL_WORLD_OFFSET = 2048.0f;   // Trap 61
+
+struct VoxelGrid {
+  // Spatial Lookup: 3D chunk coord → pool index (HEAP-ALLOCATED)
+  // 0 = Empty Air, 1 = Solid Earth, >=2 = index into chunk_pool
+  // WHY POINTER: The map is 1MB. A fixed array blows the stack
+  // when Flecs copies the singleton. Pointer makes VoxelGrid ~24B.
+  uint16_t *chunk_map; // heap: new uint16_t[TOTAL_MAP_CHUNKS]()
+
+  // Contiguous memory pool (heap-allocated once at init)
+  VoxelChunk *chunk_pool;
+  uint16_t active_chunk_count;
+
+  // Inline O(1) accessor (Trap 61: offset applied here)
+  inline uint8_t get_voxel(int x, int y, int z) const {
+    if (x < 0 || x >= MAP_CHUNKS_X * CHUNK_SIZE || y < 0 ||
+        y >= MAP_CHUNKS_Y * CHUNK_SIZE || z < 0 ||
+        z >= MAP_CHUNKS_Z * CHUNK_SIZE)
+      return VMAT_AIR;
+
+    int cx = x / CHUNK_SIZE;
+    int cy = y / CHUNK_SIZE;
+    int cz = z / CHUNK_SIZE;
+    uint16_t pool_idx = chunk_map[(cy * MAP_CHUNKS_Z + cz) * MAP_CHUNKS_X + cx];
+
+    if (pool_idx == 0)
+      return VMAT_AIR;
+    if (pool_idx == 1)
+      return VMAT_EARTH;
+
+    return chunk_pool[pool_idx]
+        .voxels[(y % CHUNK_SIZE) * (CHUNK_SIZE * CHUNK_SIZE) +
+                (z % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE)];
+  }
+
+  // Set voxel — allocates chunk from pool if needed
+  inline void set_voxel(int x, int y, int z, uint8_t mat) {
+    if (x < 0 || x >= MAP_CHUNKS_X * CHUNK_SIZE || y < 0 ||
+        y >= MAP_CHUNKS_Y * CHUNK_SIZE || z < 0 ||
+        z >= MAP_CHUNKS_Z * CHUNK_SIZE)
+      return;
+
+    int cx = x / CHUNK_SIZE;
+    int cy = y / CHUNK_SIZE;
+    int cz = z / CHUNK_SIZE;
+    int map_idx = (cy * MAP_CHUNKS_Z + cz) * MAP_CHUNKS_X + cx;
+    uint16_t pool_idx = chunk_map[map_idx];
+
+    // Allocate chunk from pool if currently implicit (air/earth)
+    if (pool_idx < 2) {
+      if (active_chunk_count >= MAX_ACTIVE_CHUNKS)
+        return; // Pool exhausted
+      uint16_t new_idx = active_chunk_count++;
+      chunk_map[map_idx] = new_idx;
+      // Initialize chunk with the implicit material
+      std::memset(chunk_pool[new_idx].voxels,
+                  (pool_idx == 0) ? VMAT_AIR : VMAT_EARTH, CHUNK_VOLUME);
+      chunk_pool[new_idx].solid_count = (pool_idx == 1) ? CHUNK_VOLUME : 0;
+      chunk_pool[new_idx].dirty_mesh = 0;
+      chunk_pool[new_idx].dirty_flow = 0;
+      chunk_pool[new_idx].needs_stability_bfs = 0;
+      pool_idx = new_idx;
+    }
+
+    VoxelChunk &chunk = chunk_pool[pool_idx];
+    int local = (y % CHUNK_SIZE) * (CHUNK_SIZE * CHUNK_SIZE) +
+                (z % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE);
+
+    uint8_t old = chunk.voxels[local];
+    chunk.voxels[local] = mat;
+
+    // Update solid count
+    if (old != VMAT_AIR && mat == VMAT_AIR)
+      chunk.solid_count--;
+    else if (old == VMAT_AIR && mat != VMAT_AIR)
+      chunk.solid_count++;
+
+    // Flag chunk as dirty
+    chunk.dirty_mesh = 1;
+    chunk.dirty_flow = 1;
+    chunk.needs_stability_bfs = 1;
+  }
+
+  // World-space float → voxel int (Trap 61: +2048 offset)
+  static inline void world_to_voxel(float wx, float wy, float wz, int &vx,
+                                    int &vy, int &vz) {
+    vx = (int)(wx + VOXEL_WORLD_OFFSET);
+    vy = (int)wy;
+    vz = (int)(wz + VOXEL_WORLD_OFFSET);
+  }
+};
+
+// ─── Destruction Event Queue (Transient Singleton) ───────────
+struct VoxelDestructionEvent {
+  float x, y, z; // World-space center
+  float radius;
+  bool is_box; // True for sapping trenches (box destroy)
+};
+
+struct DestructionQueue {
+  std::vector<VoxelDestructionEvent> events; // Cleared on flush
 };
 
 #endif // MUSKET_COMPONENTS_H

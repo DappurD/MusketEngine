@@ -349,6 +349,19 @@ void MusketServer::init_ecs() {
   // Register M9 economy systems
   musket::register_economy_systems(ecs);
 
+  // Initialize M13-M14 voxel singletons
+  // Both chunk_map (1MB) and chunk_pool (~272MB) are heap-allocated.
+  // VoxelGrid struct itself is only ~24 bytes — safe for Flecs copy.
+  VoxelGrid vg = {};
+  vg.chunk_map = new uint16_t[TOTAL_MAP_CHUNKS](); // 1MB, zero-init = all air
+  vg.chunk_pool = new VoxelChunk[MAX_ACTIVE_CHUNKS]();
+  vg.active_chunk_count = 2; // 0=Air sentinel, 1=Earth sentinel (reserved)
+  ecs.set<VoxelGrid>(vg);
+  ecs.set<DestructionQueue>({});
+
+  // Register M13-M14 voxel systems
+  musket::register_voxel_systems(ecs);
+
   // Load JSON prefabs
   musket::load_all_prefabs(ecs);
 
