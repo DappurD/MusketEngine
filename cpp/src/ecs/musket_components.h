@@ -305,22 +305,53 @@ struct alignas(32) Citizen {
   uint8_t carrying_amount; // 1B: Up to 255
 }; // 32 bytes
 
-// ─── M9: The Workplace (32 Bytes, alignas(32)) ────────────
-// Smart Buildings: produce at 1Hz, post jobs to global board.
-struct alignas(32) Workplace {
-  int16_t inventory_in;   // 2B
-  int16_t inventory_out;  // 2B
-  uint8_t consumes_item;  // 1B
-  uint8_t produces_item;  // 1B
-  int16_t active_workers; // 2B
+// ─── M10-M12: Multi-Recipe Workplace (64 Bytes, alignas(64)) ──
+// One L1 cache line. 3-input, 3-output recipe. Discrete batches (no floats).
+// Flags: Bit 0 = BYPASS_TOOLS (Trap 50), Bit 1 = MOBILE_BAKERY
+constexpr uint32_t WP_FLAG_BYPASS_TOOLS = 0x01;
+constexpr uint32_t WP_FLAG_MOBILE_BAKERY = 0x02;
 
-  float production_timer; // 4B: Ticks at 1Hz
-  float hazard_level;     // 4B: Spark/Explosion risk (GDD §7.3)
-  float tool_durability;  // 4B: Degrades over time
+struct alignas(64) Workplace {
+  // Inputs (e.g., Niter, Sulfur, Charcoal)
+  uint8_t in_items[3];  // 3B: ItemType IDs (0 = None)
+  uint8_t in_reqs[3];   // 3B: Amount consumed per batch
+  uint16_t in_stock[3]; // 6B: Current stockpiled inputs (STRICTLY INT)
 
-  uint32_t throughput_rate; // 4B: S-LOD abstract tick rate
-  int16_t max_workers;      // 2B
-  uint16_t pad;             // 2B: Padding to 32 bytes
+  // Outputs (e.g., Meat, Tallow, Hides)
+  uint8_t out_items[3];  // 3B: Primary + 2 Byproducts
+  uint8_t out_yields[3]; // 3B: Amount produced per batch
+  uint16_t out_stock[3]; // 6B: Current stockpiled outputs
+
+  int16_t active_workers; // 2B: Drops instantly when drafted
+  int16_t max_workers;    // 2B: Capacity for efficiency calculation
+
+  float prod_timer; // 4B: Accumulates dt, resets at base_time
+  float base_time;  // 4B: Seconds per batch
+
+  float tool_durability; // 4B: Degrades per batch. At 0, 0.25x penalty
+  float spark_risk;      // 4B: Ignition radius (Richmond Ordinance)
+  float pollution_out;   // 4B: Injected into M9 CivicGrid
+
+  uint32_t throughput_rate; // 4B: SLOD production rate for off-screen
+  uint32_t flags;           // 4B: WP_FLAG_BYPASS_TOOLS, WP_FLAG_MOBILE_BAKERY
+
+  uint8_t pad[8]; // 8B: Perfect padding to 64 Bytes
+}; // 64 bytes
+
+// ─── M10: Cargo Manifest (32 Bytes, alignas(32)) ──────────
+// Attached to Wagon entities (Position, Velocity, TeamId, IsAlive).
+struct alignas(32) CargoManifest {
+  uint64_t source_building; // 8B: Entity ID (Airgap)
+  uint64_t dest_building;   // 8B: Entity ID (Airgap)
+
+  uint32_t flow_field_id; // 4B: Async road network to follow
+
+  uint8_t item_type; // 1B: What it is hauling
+  uint8_t amount;    // 1B: Current cargo amount
+  uint16_t capacity; // 2B: Max capacity (e.g., 100)
+
+  float volatility; // 4B: Explosion multiplier (Black Powder = 1.0)
+  uint32_t pad;     // 4B: Exact padding to 32B
 }; // 32 bytes
 
 // ─── M9: The Household (16 Bytes, alignas(16)) ────────────

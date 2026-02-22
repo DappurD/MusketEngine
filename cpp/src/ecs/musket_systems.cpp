@@ -1058,12 +1058,13 @@ void register_economy_systems(flecs::world &ecs) {
         }
       });
 
-  // ── System M9.3: Workplace Logic (1Hz) ───────────────────────
-  // Smart Buildings: if workers present + inputs available, produce.
-  ecs.system<Workplace>("WorkplaceLogicSystem")
+  // ── System M10.1: DiscreteBatchProductionSystem (1Hz) ─────────
+  // Replaces M9 WorkplaceLogicSystem with multi-recipe discrete batches.
+  // Traps: 50 (Tool Death Spiral), 51 (Byproduct Gridlock)
+  ecs.system<Workplace>("DiscreteBatchProductionSystem")
       .with<IsAlive>()
       .each([](flecs::entity e, Workplace &wp) {
-        // 1Hz: tick every ~60 frames using entity hash
+        // 1Hz amortization
         uint32_t frame_slot = (uint32_t)(e.id() % 60);
         uint32_t current_slot =
             (uint32_t)(e.world().get_info()->world_time_total * 60.0) % 60;
@@ -1074,32 +1075,269 @@ void register_economy_systems(flecs::world &ecs) {
         if (wp.active_workers <= 0)
           return;
 
-        // Tool degradation (GDD §7.3)
-        if (wp.tool_durability > 0.0f) {
-          wp.tool_durability -= 0.01f;
+        // Check if all required inputs are satisfied
+        bool inputs_ok = true;
+        for (int i = 0; i < 3; i++) {
+          if (wp.in_items[i] != 0 && wp.in_stock[i] < wp.in_reqs[i]) {
+            inputs_ok = false;
+            break;
+          }
+        }
+        if (!inputs_ok)
+          return;
+
+        // Efficiency = active_workers / max_workers
+        float efficiency = (wp.max_workers > 0) ? (float)wp.active_workers /
+                                                      (float)wp.max_workers
+                                                : 0.0f;
+
+        // Trap 50: Tool Death Spiral
+        // BYPASS_TOOLS flag = Blacksmith works bare-handed at 0.25x
+        if (!(wp.flags & WP_FLAG_BYPASS_TOOLS)) {
+          if (wp.tool_durability <= 0.0f)
+            efficiency *= 0.25f;
         }
 
-        // Production: if we have input, convert to output
-        if (wp.inventory_in > 0 && wp.tool_durability > 0.0f) {
-          wp.production_timer += 1.0f;
-          if (wp.production_timer >= 1.0f) {
-            wp.production_timer = 0.0f;
-            wp.inventory_in--;
-            wp.inventory_out++;
+        // Advance production timer
+        wp.prod_timer += efficiency;
+        if (wp.prod_timer < wp.base_time)
+          return;
+
+        // === BATCH COMPLETE ===
+        wp.prod_timer = 0.0f;
+
+        // Deduct inputs
+        for (int i = 0; i < 3; i++) {
+          if (wp.in_items[i] != 0)
+            wp.in_stock[i] -= wp.in_reqs[i];
+        }
+
+        // Add outputs (Trap 51: Byproduct Gridlock)
+        constexpr uint16_t MAX_STOCK = 500;
+        for (int i = 0; i < 3; i++) {
+          if (wp.out_items[i] != 0) {
+            uint16_t new_stock = wp.out_stock[i] + wp.out_yields[i];
+            // If output exceeds max, clamp (excess thrown in river — Trap 51)
+            wp.out_stock[i] = (new_stock > MAX_STOCK) ? MAX_STOCK : new_stock;
           }
         }
 
-        // If output stockpile is high, post a logistics job for pickup
-        if (wp.inventory_out > 5) {
-          LogisticsJob job;
-          job.source_building = e.id();
-          job.dest_building = 0; // Matchmaker assigns nearest consumer
-          job.item_type = wp.produces_item;
-          job.amount = 1;
-          job.priority = (uint16_t)wp.inventory_out;
-          job.flow_field_id = 0;
-          g_global_job_board.push_back(job);
+        // Degrade tools (if tools exist)
+        if (!(wp.flags & WP_FLAG_BYPASS_TOOLS) && wp.tool_durability > 0.0f) {
+          wp.tool_durability -= 1.0f;
         }
+
+        // Inject pollution into CivicGrid
+        if (wp.pollution_out > 0.0f) {
+          const Position &pos = e.get<Position>();
+          CivicGrid &civic = e.world().get_mut<CivicGrid>();
+          int idx = CivicGrid::world_to_idx(pos.x, pos.z);
+          civic.pollution[idx] += wp.pollution_out;
+        }
+
+        // Post logistics jobs for outputs exceeding threshold
+        constexpr uint16_t WAGON_THRESHOLD = 20;
+        for (int i = 0; i < 3; i++) {
+          if (wp.out_items[i] != 0 && wp.out_stock[i] >= WAGON_THRESHOLD) {
+            LogisticsJob job;
+            job.source_building = e.id();
+            job.dest_building = 0; // Matchmaker assigns nearest consumer
+            job.item_type = wp.out_items[i];
+            job.amount =
+                (uint8_t)(wp.out_stock[i] > 255 ? 255 : wp.out_stock[i]);
+            job.priority = wp.out_stock[i];
+            job.flow_field_id = 0;
+            g_global_job_board.push_back(job);
+          }
+        }
+      });
+
+  // ── System M10.2: WagonKinematicsSystem (60Hz) ───────────────
+  // Road-graph movement via flow fields. O(1) lookup per wagon per frame.
+  // Trap 52: Validate dest_building is alive before reading it.
+  ecs.system<CargoManifest, Position, Velocity>("WagonKinematicsSystem")
+      .with<IsAlive>()
+      .each([](flecs::entity e, CargoManifest &cargo, Position &pos,
+               Velocity &vel) {
+        // Trap 52: Validate destination is still alive
+        if (cargo.dest_building == 0 ||
+            !e.world().is_alive(cargo.dest_building)) {
+          // Destination destroyed — halt wagon, clear velocity
+          vel.vx = 0.0f;
+          vel.vz = 0.0f;
+          // TODO: M9 Matchmaker should reroute to nearest valid depot
+          return;
+        }
+
+        // Flow field pathfinding stub (full flow fields are M11)
+        // For now: direct spring toward destination (same as citizen movement)
+        const Position &tp =
+            e.world().entity(cargo.dest_building).get<Position>();
+        float dx = tp.x - pos.x;
+        float dz = tp.z - pos.z;
+        float dist_sq = dx * dx + dz * dz;
+
+        constexpr float WAGON_SPEED = 3.0f;     // m/s (slower than cavalry)
+        constexpr float ARRIVAL_DIST_SQ = 4.0f; // 2m arrival radius
+
+        if (dist_sq < ARRIVAL_DIST_SQ) {
+          // Arrived at destination
+          vel.vx = 0.0f;
+          vel.vz = 0.0f;
+
+          // Deliver cargo to dest workplace
+          if (e.world().entity(cargo.dest_building).has<Workplace>()) {
+            Workplace &dest_wp =
+                e.world().entity(cargo.dest_building).get_mut<Workplace>();
+            // Find matching input slot and deposit
+            for (int i = 0; i < 3; i++) {
+              if (dest_wp.in_items[i] == cargo.item_type) {
+                dest_wp.in_stock[i] += cargo.amount;
+                break;
+              }
+            }
+          }
+
+          // Deduct from source output
+          if (cargo.source_building != 0 &&
+              e.world().is_alive(cargo.source_building) &&
+              e.world().entity(cargo.source_building).has<Workplace>()) {
+            Workplace &src_wp =
+                e.world().entity(cargo.source_building).get_mut<Workplace>();
+            for (int i = 0; i < 3; i++) {
+              if (src_wp.out_items[i] == cargo.item_type) {
+                if (src_wp.out_stock[i] >= cargo.amount)
+                  src_wp.out_stock[i] -= cargo.amount;
+                break;
+              }
+            }
+          }
+
+          cargo.amount = 0;
+          // Wagon returns to idle — Matchmaker reassigns next tick
+          return;
+        }
+
+        // Move toward destination
+        float inv_dist = 1.0f / std::sqrt(dist_sq);
+        vel.vx = dx * inv_dist * WAGON_SPEED;
+        vel.vz = dz * inv_dist * WAGON_SPEED;
+      });
+
+  // ── System M11.1: HazardIgnitionSystem (5Hz) ─────────────────
+  // Richmond Ordinance: spark_risk near volatile wagons → explosion.
+  // Uses M8 Spatial Hash for O(1) proximity check.
+  ecs.system<const Workplace, const Position>("HazardIgnitionSystem")
+      .with<IsAlive>()
+      .each([](flecs::entity e, const Workplace &wp, const Position &pos) {
+        if (wp.spark_risk <= 0.0f)
+          return;
+
+        // 5Hz amortization
+        uint32_t frame_slot = (uint32_t)(e.id() % 12);
+        uint32_t current_slot =
+            (uint32_t)(e.world().get_info()->world_time_total * 60.0) % 12;
+        if (frame_slot != current_slot)
+          return;
+
+        // Query M8 Spatial Hash for nearby volatile entities
+        const SpatialHashGrid &grid = e.world().get<SpatialHashGrid>();
+
+        // Check nearby cells (15m radius → ~2 cells at 8m cell size)
+        constexpr float IGNITION_RADIUS = 15.0f;
+        int cx, cz;
+        SpatialHashGrid::world_to_cell(pos.x, pos.z, cx, cz);
+        int cell_range = (int)(IGNITION_RADIUS / SPATIAL_CELL_SIZE) + 1;
+
+        // Simple RNG humidity check (10% chance per tick per spark source)
+        uint32_t rng =
+            (uint32_t)(e.id() * 2654435761u +
+                       (uint32_t)(e.world().get_info()->world_time_total *
+                                  1000.0));
+        if ((rng % 100) > 10)
+          return; // 90% humidity saves the day
+
+        // Scan for volatile wagons in range
+        for (int dz = -cell_range; dz <= cell_range; dz++) {
+          for (int dx = -cell_range; dx <= cell_range; dx++) {
+            int nx = cx + dx;
+            int nz = cz + dz;
+            if (nx < 0 || nx >= SPATIAL_WIDTH || nz < 0 || nz >= SPATIAL_HEIGHT)
+              continue;
+
+            int cell_idx = nz * SPATIAL_WIDTH + nx;
+            int head = grid.cell_head[cell_idx];
+            while (head >= 0 && head < grid.active_count) {
+              uint64_t target_id = grid.entity_id[head];
+              if (e.world().is_alive(target_id)) {
+                flecs::entity target = e.world().entity(target_id);
+                if (target.has<CargoManifest>()) {
+                  const CargoManifest &cm = target.get<CargoManifest>();
+                  if (cm.volatility > 0.0f) {
+                    // Check actual distance
+                    const Position &tp = target.get<Position>();
+                    float ddx = tp.x - pos.x;
+                    float ddz = tp.z - pos.z;
+                    if ((ddx * ddx + ddz * ddz) <
+                        IGNITION_RADIUS * IGNITION_RADIUS) {
+                      // KABOOM — defer entity deletion
+                      target.remove<IsAlive>();
+                      // TODO: Queue VoxelDestructionEvent for M13
+                    }
+                  }
+                }
+              }
+              head = grid.entity_next[head];
+            }
+          }
+        }
+      });
+
+  // ── M12.1: WagonCombatObserver (Event Driven) ────────────────
+  // When a wagon dies (cavalry, artillery), cargo is lost.
+  // If carrying Black Powder, secondary explosion kills nearby entities.
+  ecs.observer<CargoManifest>("OnWagonDestroyed")
+      .event(flecs::OnRemove)
+      .each([](flecs::entity e, CargoManifest &cargo) {
+        // If volatile cargo, trigger secondary explosion
+        if (cargo.volatility > 0.0f && cargo.amount > 0) {
+          // Detonate: kill everything in 20m radius using spatial hash
+          const SpatialHashGrid &grid = e.world().get<SpatialHashGrid>();
+          const Position &pos = e.get<Position>();
+          constexpr float BLAST_RADIUS = 20.0f;
+
+          int cx, cz;
+          SpatialHashGrid::world_to_cell(pos.x, pos.z, cx, cz);
+          int cell_range = (int)(BLAST_RADIUS / SPATIAL_CELL_SIZE) + 1;
+
+          for (int dz = -cell_range; dz <= cell_range; dz++) {
+            for (int dx = -cell_range; dx <= cell_range; dx++) {
+              int nx = cx + dx;
+              int nz = cz + dz;
+              if (nx < 0 || nx >= SPATIAL_WIDTH || nz < 0 ||
+                  nz >= SPATIAL_HEIGHT)
+                continue;
+
+              int cell_idx = nz * SPATIAL_WIDTH + nx;
+              int head = grid.cell_head[cell_idx];
+              while (head >= 0 && head < grid.active_count) {
+                uint64_t target_id = grid.entity_id[head];
+                if (target_id != e.id() && e.world().is_alive(target_id)) {
+                  flecs::entity target = e.world().entity(target_id);
+                  const Position &tp = target.get<Position>();
+                  float ddx = tp.x - pos.x;
+                  float ddz = tp.z - pos.z;
+                  if ((ddx * ddx + ddz * ddz) < BLAST_RADIUS * BLAST_RADIUS) {
+                    target.remove<IsAlive>();
+                  }
+                }
+                head = grid.entity_next[head];
+              }
+            }
+          }
+        }
+        // Cargo permanently lost
+        cargo.amount = 0;
       });
 
   // ── System M9.4: Zeitgeist Aggregation (0.2Hz) ──────────────

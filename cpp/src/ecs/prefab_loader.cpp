@@ -84,13 +84,31 @@ void load_all_prefabs(flecs::world &ecs) {
               bld["components"].contains("Workplace")) {
             auto &wp = bld["components"]["Workplace"];
             Workplace w = {};
-            w.consumes_item = wp.value("consumes_item", (uint8_t)0);
-            w.produces_item = wp.value("produces_item", (uint8_t)0);
-            w.inventory_in = wp.value("inventory_in", (int16_t)0);
-            w.inventory_out = wp.value("inventory_out", (int16_t)0);
-            w.tool_durability = wp.value("tool_durability", 100.0f);
+            // Input recipe (up to 3)
+            if (wp.contains("in_items")) {
+              for (int i = 0; i < 3 && i < (int)wp["in_items"].size(); i++)
+                w.in_items[i] = wp["in_items"][i].get<uint8_t>();
+            }
+            if (wp.contains("in_reqs")) {
+              for (int i = 0; i < 3 && i < (int)wp["in_reqs"].size(); i++)
+                w.in_reqs[i] = wp["in_reqs"][i].get<uint8_t>();
+            }
+            // Output recipe (up to 3)
+            if (wp.contains("out_items")) {
+              for (int i = 0; i < 3 && i < (int)wp["out_items"].size(); i++)
+                w.out_items[i] = wp["out_items"][i].get<uint8_t>();
+            }
+            if (wp.contains("out_yields")) {
+              for (int i = 0; i < 3 && i < (int)wp["out_yields"].size(); i++)
+                w.out_yields[i] = wp["out_yields"][i].get<uint8_t>();
+            }
             w.max_workers = wp.value("max_workers", (int16_t)4);
+            w.base_time = wp.value("base_time", 10.0f);
+            w.tool_durability = wp.value("tool_durability", 100.0f);
+            w.spark_risk = wp.value("spark_risk", 0.0f);
+            w.pollution_out = wp.value("pollution_out", 0.0f);
             w.throughput_rate = wp.value("throughput_rate", (uint32_t)1);
+            w.flags = wp.value("flags", (uint32_t)0);
             prefab.set<Workplace>(w);
           }
         }

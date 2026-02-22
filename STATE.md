@@ -3,7 +3,7 @@
 > This file is the AI agent's external memory. Before starting any new task, **read this file** and `docs/GDD.md`. After completing a task, **update this file**.
 
 ## Current Phase
-**Phase 1: Combat Prototype** — M0.5 ✅, M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅, M7 ✅, M8 ✅, M9 ✅. All tested 2026-02-21.
+**Phase 1: Combat Prototype** — M0.5 ✅, M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅, M7 ✅, M8 ✅, M9 ✅, M10-M12 ✅. All tested 2026-02-21.
 
 ## Project Identity
 - **Game**: The Musket Engine — Neuro-Symbolic Napoleonic War & Economy Simulator
@@ -31,6 +31,7 @@
 | **M6: Battalion Rendering + Cavalry** | ✅ Complete | `rendering_bridge.h/.cpp`, `world_manager.h/.cpp`, `musket_systems.cpp`, `test_bed.gd` |
 | **M8: Spatial Hash Grid** | ✅ Complete | `musket_components.h` (SpatialHashGrid singleton, MacroSimulated tag), `musket_systems.cpp` (SpatialGridRebuild, VolleyFire rewrite), `world_manager.cpp` |
 | **M9: Per-Citizen Economy** | ✅ Complete | `musket_components.h` (Citizen 32B, Workplace 32B, Household, CivicGrid, Zeitgeist), `musket_systems.cpp` (5 economy systems + conscription observer), `world_manager.cpp`, `prefab_loader.cpp` |
+| **M10-M12: Supply Chains** | ✅ Complete | `musket_components.h` (Workplace 64B multi-recipe, CargoManifest 32B), `musket_systems.cpp` (DiscreteBatchProduction, WagonKinematics, HazardIgnition, WagonCombatObserver), `prefab_loader.cpp` |
 | **Napoleonic Asset Pack** | ✅ Imported | `res/models/{soldiers,props,buildings}/`, `res/textures/` |
 
 ### M1 Files
